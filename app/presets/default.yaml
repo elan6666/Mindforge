@@ -1,0 +1,19 @@
+preset_mode: default
+display_name: Default Assistant
+description: General fallback preset for tasks that do not explicitly select a mode.
+agent_roles:
+  - coordinator
+execution_flow:
+  - intake
+  - execute
+  - summarize
+default_models:
+  coordinator: default-model
+requires_repo_analysis: false
+requires_approval: false
+metadata:
+  stage: phase-2
+  supported_domains:
+    - general
+    - software-engineering
+    - academic-writing

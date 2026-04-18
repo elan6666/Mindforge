@@ -1,0 +1,22 @@
+preset_mode: code-engineering
+display_name: Code Engineering
+description: Prepare tasks for future code-engineering orchestration with planning, coding, and review stages.
+agent_roles:
+  - project-manager
+  - backend
+  - frontend
+  - reviewer
+execution_flow:
+  - plan
+  - implement
+  - review
+default_models:
+  project-manager: planner-model
+  backend: coding-model
+  frontend: coding-model
+  reviewer: review-model
+requires_repo_analysis: true
+requires_approval: false
+metadata:
+  stage: phase-2
+

@@ -1,0 +1,23 @@
+preset_mode: paper-revision
+display_name: Paper Revision
+description: Coordinate standards analysis, paper rewriting, and reviewer-style critique for academic papers.
+agent_roles:
+  - standards-editor
+  - reviser
+  - reviewer
+execution_flow:
+  - analyze-standards
+  - revise
+  - review
+  - iterate
+default_models:
+  standards-editor: research-model
+  reviser: writing-model
+  reviewer: review-model
+requires_repo_analysis: false
+requires_approval: false
+metadata:
+  stage: phase-2
+  domain: academic-writing
+  supports_journal_guidelines: true
+  supports_reviewer_iteration: true

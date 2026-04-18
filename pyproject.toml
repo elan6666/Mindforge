@@ -1,0 +1,32 @@
+[project]
+name = "multi-agent-assistant"
+version = "0.1.0"
+description = "OpenHands-based multi-agent assistant backend skeleton."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.116.0,<1.0.0",
+  "pydantic-settings>=2.10.0,<3.0.0",
+  "pyyaml>=6.0.2,<7.0.0",
+  "requests>=2.32.0,<3.0.0",
+  "uvicorn>=0.35.0,<1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4.0,<9.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

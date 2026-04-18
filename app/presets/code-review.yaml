@@ -1,0 +1,18 @@
+preset_mode: code-review
+display_name: Code Review
+description: Analyze code changes and organize review responsibilities for future review flows.
+agent_roles:
+  - reviewer
+  - security-reviewer
+execution_flow:
+  - inspect
+  - classify
+  - summarize
+default_models:
+  reviewer: review-model
+  security-reviewer: review-model
+requires_repo_analysis: true
+requires_approval: false
+metadata:
+  stage: phase-2
+
