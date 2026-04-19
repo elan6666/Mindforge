@@ -30,3 +30,14 @@ status: locked
 - `POST /api/tasks` 在 `preset_mode=code-engineering` 下不再走单次 adapter 调用
 - 系统返回结构化阶段结果、阶段摘要和最终汇总
 - 其余 preset 保持 Phase 2 行为不变
+
+## OpenHands Reference Areas
+
+- `E:/CODE/OpenHands-main/OpenHands-main/openhands/agenthub/README.md` - 上游对 agent、state、action、observation 以及 delegation 的抽象说明
+- `E:/CODE/OpenHands-main/OpenHands-main/openhands/memory/memory.py` - workspace context 和 instructions 如何在执行前被组织并注入
+
+## Reuse Guidance
+
+- 当前串行 orchestration 是 Mindforge 的 MVP，不必返工，但后续扩展时要优先向 OpenHands 的 agent/state/action 语义收敛
+- 不要继续膨胀一套完全平行的自定义执行协议；新增字段和阶段语义时先检查上游是否已有对应概念
+- Phase 3 的目标是验证角色分工和结果结构，不是从零定义长期 agent runtime

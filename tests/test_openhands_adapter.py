@@ -33,6 +33,8 @@ def test_mock_mode_returns_deterministic_payload():
             "prompt": "Analyze backend",
             "preset_mode": "default",
             "repo_path": ".",
+            "model": "gpt-5.4",
+            "provider_id": "openai",
             "metadata": {
                 "orchestration_stage": "backend",
                 "orchestration_role": "backend",
@@ -44,6 +46,7 @@ def test_mock_mode_returns_deterministic_payload():
     assert result.provider == "mock-openhands"
     assert "received prompt: Analyze backend" in result.output
     assert "stage: backend" in result.output
+    assert "model: gpt-5.4" in result.output
     assert result.metadata["mode"] == "mock"
 
 

@@ -28,6 +28,7 @@ def test_load_preset_file_reads_code_engineering_template():
         "frontend",
         "reviewer",
     ]
+    assert preset.default_models["frontend"] == "kimi-2.5"
 
 
 def test_load_all_presets_includes_expected_modes():

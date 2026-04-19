@@ -1,0 +1,90 @@
+{
+  "templates": [
+    {
+      "template_id": "code-engineering-default",
+      "display_name": "Code Engineering Default",
+      "description": "Default multi-role template for software implementation tasks.",
+      "preset_mode": "code-engineering",
+      "task_types": [
+        "planning",
+        "review"
+      ],
+      "default_coordinator_model_id": "gpt-5.4",
+      "enabled": true,
+      "is_default": true,
+      "trigger_keywords": [
+        "backend",
+        "frontend",
+        "api",
+        "feature",
+        "login"
+      ],
+      "assignments": [
+        {
+          "role": "project-manager",
+          "responsibility": "Task planning and work breakdown",
+          "model_id": "gpt-5.4"
+        },
+        {
+          "role": "backend",
+          "responsibility": "Backend design and API implementation",
+          "model_id": "gpt-5.4"
+        },
+        {
+          "role": "frontend",
+          "responsibility": "UI structure and interaction flow",
+          "model_id": "kimi-2.5"
+        },
+        {
+          "role": "reviewer",
+          "responsibility": "Cross-check stage outputs",
+          "model_id": "glm-5.1"
+        }
+      ],
+      "notes": "Matches the Phase 3 serial code-engineering chain."
+    },
+    {
+      "template_id": "paper-revision-journal",
+      "display_name": "Paper Revision Journal",
+      "description": "Structured journal paper revision template with style and content review.",
+      "preset_mode": "paper-revision",
+      "task_types": [
+        "writing",
+        "review"
+      ],
+      "default_coordinator_model_id": "gpt-5.4",
+      "enabled": true,
+      "is_default": true,
+      "trigger_keywords": [
+        "paper",
+        "journal",
+        "reviewer",
+        "abstract",
+        "manuscript"
+      ],
+      "assignments": [
+        {
+          "role": "standards-editor",
+          "responsibility": "Guideline and journal standard analysis",
+          "model_id": "gpt-5.4"
+        },
+        {
+          "role": "reviser",
+          "responsibility": "Content revision and rewriting",
+          "model_id": "gpt-5.4"
+        },
+        {
+          "role": "reviewer",
+          "responsibility": "Content review and reviewer-style feedback",
+          "model_id": "glm-5.1"
+        },
+        {
+          "role": "style-reviewer",
+          "responsibility": "Tone and writing-style review",
+          "model_id": "kimi-2.5"
+        }
+      ],
+      "notes": "Useful for paper revision scenarios with separate style and content review responsibilities."
+    }
+  ]
+}

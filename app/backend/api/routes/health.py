@@ -8,5 +8,4 @@ router = APIRouter()
 @router.get("/health")
 def health_check() -> dict[str, str]:
     """Return a minimal liveness payload."""
-    return {"status": "ok", "service": "multi-agent-assistant"}
-
+    return {"status": "ok", "service": "mindforge"}

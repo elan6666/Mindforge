@@ -1,98 +1,125 @@
-# 项目概述
+# Project Overview
 
-## 项目名称
+## Project Name
 
-多Agent智能软件研发辅助平台
+Mindforge
 
-## 项目定位
+## Positioning
 
-本项目是一个面向软件研发与学术论文修改场景的多 Agent 协作助手平台。系统不从零实现 Agent 内核，而是以 `OpenHands` 作为底座，在其 SDK、CLI 和 Local GUI 之上进行二次开发，补充模板编排、角色化协作、仓库分析、模型配置、审批、日志历史和结果展示能力。
+Mindforge is a multi-agent assistant platform for software development and academic paper revision. The system reuses OpenHands as the execution base and adds preset-driven orchestration, repository analysis, model routing, approval, history, and result presentation on top of it.
 
-## 项目目标
+## Goals
 
-1. 建立统一的任务提交与结果展示入口。
-2. 通过预设模式驱动多 Agent 协作，优先支持代码工程模式。
-3. 在代码工程模式下自动实例化项目经理、后端、前端、审查等角色 Agent。
-4. 在论文修改模式下支持标准分析、改写、审稿意见汇总与多轮修订。
-5. 支持统一模型配置、路由和运行参数管理。
-6. 支持审批节点、执行日志、历史记录和结果产物展示。
-7. 支持 GitHub 只读集成，为研发任务补充外部上下文。
+1. Provide a unified task entrypoint and structured result output.
+2. Support preset-driven multi-agent collaboration, with `code-engineering` as the primary delivery path.
+3. Automatically instantiate role-based agents such as project manager, backend, frontend, and reviewer for software tasks.
+4. Support paper revision workflows with standards analysis, rewriting, reviewer feedback, and iterative revision.
+5. Support unified provider and model configuration, routing, and execution parameters.
+6. Expose a user-facing model control center where users can manage available models, priorities, and enablement state.
+7. Support rule templates that map responsibilities or agent roles to specific models.
+8. Use a default coordinator model to analyze a user task, select a matching rule template, and assign different models to different agents.
+9. Provide a Codex-like application workspace with sidebar navigation, chat-driven task entry, history, preset switching, and execution/result panels.
+10. Support approval checkpoints, execution logs, history, and GitHub read-only context.
+11. Learn selectively from OpenHands repository architecture, especially the separation between reusable skills, repository-specific instructions, runtime tools, and agent implementations.
 
-## 目标用户
+## Target Users
 
-- 软件开发人员
-- 软件工程课程学生
-- 需要多角色协作型 AI 研发辅助的原型项目团队
-- 需要论文润色、期刊规范对齐和审稿意见消化的学生或研究者
+- Software developers
+- Software engineering students
+- Teams building prototype multi-agent developer tools
+- Students and researchers who need paper revision and reviewer-style feedback
 
-## 核心原则
+## Core Principles
 
-- 复用成熟底座：优先复用 `OpenHands`
-- 模板驱动协作：通过 preset 定义角色、流程和约束
-- 低耦合扩展：模板中心、调度、仓库分析、模型路由和审批分别演进
-- 先主线后扩展：代码工程模式作为 MVP 主线，论文修改模式作为扩展方向
-- 可追踪可回放：关键流程、日志、摘要和审批结果都应可查
+- Reuse a mature runtime instead of rebuilding an agent core from scratch.
+- Reuse proven OpenHands implementations where they fit, instead of inventing parallel local abstractions first.
+- Keep presets and orchestration rules explicit and inspectable.
+- Separate backend routing concerns from user-facing rule authoring concerns.
+- Keep the primary path narrow first, then expand with specialized workflows.
+- Make important execution decisions traceable and reviewable.
 
-## 当前纳入范围
+## In Scope
 
-- OpenHands 接入与适配
-- 代码工程模式
-- 论文修改模式模板占位
-- 模板中心与 Agent 实例化
-- 统一模型配置与路由
-- 仓库分析与上下文注入
-- 审批节点
-- 日志历史与结果产物
-- GitHub 只读集成
+- OpenHands integration and adapter boundary
+- Selective code-level reuse of OpenHands MIT-licensed implementations for frontend shell, runtime-oriented tools, skill/instruction loading, and agent abstractions
+- Preset-driven execution modes
+- Role-based agent orchestration
+- Repository analysis and context injection
+- Unified provider and model routing
+- Codex-like app workspace and interaction shell
+- User-facing model control center
+- Rule templates for assigning different models to different agents
+- Reusable skill content and repository-specific instructions
+- Approval, history, logs, and result views
+- GitHub read-only context
+- Paper revision mode
 
-## 暂不纳入范围
+## Out of Scope
 
-- 自研 Agent 内核
-- GitHub 写操作，例如自动提 PR、自动评论
-- 多租户权限系统
-- 复杂并行调度与 worktree 隔离
-- 自动投稿、版权处理和外部出版流程
+- Building a custom agent runtime from scratch
+- GitHub write operations such as auto-PR creation
+- Full multi-tenant permissions and enterprise auth
+- Deep browser automation in the initial milestone
+- Automatic paper submission or copyright handling flows
 
-## MVP 定义
+## MVP
 
-MVP 以代码工程模式为核心，要求系统能够：
+The MVP remains centered on `code-engineering`:
 
-1. 接收用户任务和仓库输入
-2. 基于 preset 自动确定执行模式
-3. 完成代码工程模式的角色实例化与串行协作
-4. 输出结构化阶段摘要、最终结果和基础日志
+1. Accept a user task and optional repository input.
+2. Resolve a preset and execute a role-based orchestration flow.
+3. Inject lightweight repository context before execution.
+4. Return structured stage summaries, final output, and execution metadata.
 
-论文修改模式在当前里程碑先完成模板、需求和路线规划，不要求本阶段立即落地完整编排。
+Near-term planned expansion after the MVP:
 
-## 技术基线
+1. Backend provider/model registry and routing.
+2. A Codex-like app workspace with sidebar, chat composer, session history, task panels, and mode switching.
+3. A user-facing model control center with priority settings: `high`, `medium`, `low`, `disabled`.
+4. Rule templates such as paper revision, where different responsibilities map to different models.
+5. Coordinator-driven task analysis that selects a rule template and assigns models to agents automatically.
+6. A lightweight skills/instructions system inspired by OpenHands, without copying its full legacy/V1 layering.
+7. Phase-specific implementation guidance that points developers to preferred OpenHands reference areas before new code is introduced.
 
-- 底座：`OpenHands`
-- 后端：`Python + FastAPI`
-- 前端：`React/TypeScript`
-- 存储：`SQLite`
-- 仓库分析：`GitPython`
-- 图示：`Mermaid / ECharts`
-- 外部只读集成：`GitHub`
+## Technology Baseline
 
-## 成功标准
+- Runtime base: `OpenHands`
+- Backend: `Python + FastAPI`
+- Frontend: `React + TypeScript`
+- Storage: `SQLite`
+- Repository analysis: `GitPython`
+- Visualization: `Mermaid / ECharts`
+- External read-only context: `GitHub`
 
-### 产品级
+## Success Criteria
 
-- 用户能完成一次端到端代码工程任务
-- 系统能基于模板返回结构化阶段结果
-- 用户能查看基础日志和模式元信息
+### Product
 
-### 课程/答辩级
+- A user can complete an end-to-end `code-engineering` task.
+- The system returns structured stage outputs and metadata.
+- The system can maintain multiple model definitions and route execution to the expected model.
+- The system exposes a coherent frontend workspace for chat, task launch, history, and result inspection.
+- A user can manage model priorities and author rule templates from the frontend.
+- A user can define a scenario such as paper revision and map different responsibilities to different models.
+- The project has a clear home for reusable skills and repository-specific instructions.
+- Developers can point to explicit OpenHands reference implementations for major new subsystems instead of describing them as greenfield rewrites.
 
-- 文档、架构、流程和实现保持一致
-- 关键阶段有清晰的边界与演进路线
-- 系统具备可演示性和可扩展性
+### Delivery
 
-## 当前状态
+- Documents, architecture, and implementation stay aligned.
+- Each phase has a clear boundary and measurable success criteria.
+- The project remains demonstrable and incrementally extensible.
 
-- Phase 1 已完成：本地 `FastAPI` 服务、统一任务接口、`OpenHandsAdapter` 和本地演示链路已可用
-- Phase 2 已完成：系统支持文件型 preset 模板、`/api/presets` 模式发现，以及 preset-aware 的 `/api/tasks` 提交链路
-- Phase 3 已完成：`code-engineering` 模式已支持项目经理、后端、前端、审查四阶段串行编排，并返回结构化阶段元数据
-- Phase 4 已完成：系统可对本地仓库生成轻量 `Repo Summary`，并在任务开始前注入多阶段编排链
-- 当前已内置 `paper-revision` 模板占位，为后续论文修改智能体编排预留入口
-- 下一步进入 Phase 5：补齐统一模型配置与路由
+## Current Status
+
+- Phase 1 complete: local FastAPI service, normalized task API, and an OpenHands adapter boundary; real upstream runtime integration is still pending.
+- Phase 2 complete: YAML-backed preset center and preset discovery API.
+- Phase 3 complete: serial role orchestration for `code-engineering`, currently implemented as a Mindforge-side MVP flow that may later align more closely with OpenHands agent semantics.
+- Phase 4 complete: local repository analysis and context injection, currently kept intentionally lightweight so it can later merge into a broader workspace-context and instructions system.
+- Phase 5 complete: backend provider/model registry, routing rules, explicit overrides, and execution-time model selection.
+- Phase 6 complete: a runnable React + Vite workspace shell now provides sidebar navigation, chat-style task launch, session history, and result panels backed by the existing APIs.
+- Phase 7 complete: the frontend now exposes a model control center and rule-template editor, and the backend records coordinator-driven template selection plus effective role-model assignment.
+- Phase 8 complete: blocking approvals, SQLite-backed task/stage history, approval APIs, and frontend history/approval views are now in place.
+- Next up is Phase 9: GitHub read-only context and richer result presentation.
+- Skills architecture is currently planned as a selective follow-up capability rather than a prerequisite for Phase 5.
+- Future implementation phases should treat OpenHands as the default reference source for reusable MIT-licensed patterns before introducing Mindforge-specific replacements.

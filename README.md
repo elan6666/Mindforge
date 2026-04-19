@@ -1,13 +1,27 @@
-# 多Agent智能软件研发辅助平台
+# Mindforge
 
-这是一个基于 `OpenHands` 二次开发的多 Agent 助手项目。当前仓库已经完成：
+这是一个参考 `OpenHands` 架构并预留其运行时适配边界的多 Agent 助手项目。当前阶段并不是直接嵌入 `OpenHands` 内核运行，而是在其上先搭建 `Mindforge` 自己的任务入口、preset 中心、编排层和后续 Web App 规划。当前仓库已经完成：
 
 - Phase 1：`FastAPI` 入口、统一任务接口、`OpenHandsAdapter` 适配边界
 - Phase 2：文件型 preset 模板中心、`/api/presets` 模式发现、preset-aware 的 `/api/tasks`
 - Phase 3：`code-engineering` 模式下的角色实例化与串行调度
 - Phase 4：本地仓库扫描、`Repo Summary` 生成与上下文注入
+- Phase 5：provider/model registry、`/api/providers`、`/api/models`、执行时模型路由与 override
+- Phase 6：Web App 工作台壳、会话历史、任务输入区、结果/轨迹面板、前后端联调
+- Phase 7：模型中心、规则模板中心、协调模型选择与动态角色模型分配
 
 当前系统既保留“代码工程模式”主线，也加入了“论文修改模式”的模板占位，后续会在编排阶段补齐多 Agent 协作逻辑。
+
+## 当前与 OpenHands 的关系
+
+当前项目与 `OpenHands` 的关系更准确地说是：
+
+- 已参考其产品和架构方向，而不是从零定义整套 agent 产品形态
+- 已预留独立的 `OpenHandsAdapter` 作为运行时适配边界
+- 当前默认仍以 `mock` 演示链路为主，`http` 模式只是为后续真实上游集成预留接口
+- `preset`、多阶段编排、仓库分析、模型中心和规则模板属于 `Mindforge` 自己的产品层
+
+如果后续接入真实 `OpenHands` 服务，`Mindforge` 会继续保留自己的产品层，同时把更底层的执行能力逐步切到真实运行时。
 
 ## 当前内置 Presets
 
@@ -46,6 +60,8 @@
 
 如果传入 `repo_path`，系统还会在任务开始前做一次轻量仓库扫描，并把 `repo_analysis` 放入响应 metadata。
 
+这条多阶段链路当前是 `Mindforge` 侧的 MVP 编排实现，目的是先验证角色分工和结果组织方式。后续阶段会尽量向 `OpenHands` 更成熟的 agent/state/action 抽象靠拢，而不是长期维护完全独立的轻量协议。
+
 ## `repo_analysis` 当前行为
 
 Phase 4 增加了本地仓库分析，当前规则是轻量和可预测的：
@@ -63,6 +79,8 @@ Phase 4 增加了本地仓库分析，当前规则是轻量和可预测的：
 
 无论哪种情况，主任务链都不会因为仓库分析失败而直接中断。
 
+当前这套仓库分析是刻意保持轻量的产品层能力。后续如果引入 `skills`、仓库私有 instructions 或更完整的 workspace context，会在这套基础上继续合并，而不是推倒重做。
+
 ## 项目结构
 
 ```text
@@ -75,7 +93,7 @@ app/backend/
 └── storage/      # placeholder for future persistence
 
 app/presets/      # YAML preset templates
-frontend/         # GUI extension placeholder
+frontend/         # React + Vite Web App workspace shell
 scripts/          # local demo helpers
 ```
 
@@ -93,6 +111,20 @@ python -m pip install -e .
 powershell -ExecutionPolicy Bypass -File .\scripts\run_local_demo.ps1
 ```
 
+启动前端工作台：
+
+```powershell
+cd .\frontend
+npm install
+npm run dev
+```
+
+前端默认地址：
+
+```text
+http://127.0.0.1:5173
+```
+
 检查健康接口：
 
 ```powershell
@@ -105,13 +137,37 @@ Invoke-RestMethod -Method Get http://127.0.0.1:8000/api/health
 Invoke-RestMethod -Method Get http://127.0.0.1:8000/api/presets
 ```
 
+查看可用 provider：
+
+```powershell
+Invoke-RestMethod -Method Get http://127.0.0.1:8000/api/providers
+```
+
+查看可用 model：
+
+```powershell
+Invoke-RestMethod -Method Get http://127.0.0.1:8000/api/models
+```
+
+查看可编辑模型控制状态：
+
+```powershell
+Invoke-RestMethod -Method Get http://127.0.0.1:8000/api/control/models
+```
+
+查看规则模板：
+
+```powershell
+Invoke-RestMethod -Method Get http://127.0.0.1:8000/api/control/rule-templates
+```
+
 提交一个代码审查任务：
 
 ```powershell
 $body = @{
   prompt = "Review the current backend structure."
   preset_mode = "code-review"
-  repo_path = "E:\\CODE\\agent助手"
+  repo_path = "E:\\CODE\\Mindforge"
 } | ConvertTo-Json
 
 Invoke-RestMethod `
@@ -141,8 +197,45 @@ Invoke-RestMethod `
 通过环境变量 `OPENHANDS_MODE` 控制适配器模式：
 
 - `mock`：默认模式，用于本地演示
-- `http`：当 `OPENHANDS_BASE_URL` 已配置时，转发到上游 HTTP 任务接口
+- `http`：当 `OPENHANDS_BASE_URL` 已配置时，转发到上游 HTTP 任务接口；后续会逐步向真实 `OpenHands` 服务契约收敛
 - `disabled`：禁用适配层，接口返回明确错误
+
+## Phase 5 模型路由
+
+当前后端已经提供文件型 model registry，并支持：
+
+- provider 查询：`GET /api/providers`
+- model 查询：`GET /api/models`
+- 单次任务默认模型选择
+- `code-engineering` 多阶段 role 级模型选择
+- 显式 override：
+  - `model_override`
+  - `role_model_overrides`
+
+当前默认优先级顺序为：
+
+1. 显式 override
+2. role 默认
+3. `task_type` 默认
+4. `preset_mode` 默认
+5. global 默认
+6. priority fallback
+
+## Phase 7 模型中心与规则模板
+
+当前系统已经支持：
+
+- 前端模型中心：调整模型优先级 `high / medium / low / disabled`
+- 前端规则模板中心：按 `preset_mode`、职责和模型创建结构化模板
+- 后端协调模型选择：根据显式模板或 prompt/preset/task type 命中模板
+- 执行元数据回写：
+  - `rule_template_selection`
+  - `effective_role_model_overrides`
+
+当前模板和模型可编辑状态使用本地配置文件持久化：
+
+- `app/model_control/model_overrides.json`
+- `app/model_control/rule_templates.json`
 
 ## Preset 行为
 
@@ -152,5 +245,33 @@ Invoke-RestMethod `
 
 ## 后续重点
 
-- Phase 5-7：模型路由、审批历史、GitHub 只读集成
-- Phase 8：论文修改模式的标准分析、改写与审稿循环
+- Phase 8-9：审批历史、GitHub 只读集成
+- Phase 10：论文修改模式的标准分析、改写与审稿循环
+## Phase 8 审批与历史
+
+当前系统已经支持：
+
+- 高风险任务进入 `pending_approval`，并在当前工作台内批准或拒绝
+- `SQLite` 持久化 `task_run / stage_run / approval`
+- 审批接口：
+  - `GET /api/approvals/pending`
+  - `POST /api/approvals/{task_id}/approve`
+  - `POST /api/approvals/{task_id}/reject`
+- 历史接口：
+  - `GET /api/history/tasks`
+  - `GET /api/history/tasks/{task_id}`
+- 前端工作台历史列表、状态筛选、详情面板和审批标签页
+
+当前审批触发规则保持轻量：
+
+- 只在请求 metadata 中出现高风险信号时触发，例如：
+  - `requires_approval = true`
+  - `approval_actions`
+  - `high_risk_actions`
+  - `execution_mode = write/shell/batch-write`
+- 普通只读分析和默认 mock 链路不会自动拦截
+
+后续重点：
+
+- Phase 9：GitHub 只读集成与结果展示增强
+- Phase 10：论文修改模式的标准分析、改写与审稿循环

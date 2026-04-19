@@ -9,10 +9,9 @@ execution_flow:
   - classify
   - summarize
 default_models:
-  reviewer: review-model
-  security-reviewer: review-model
+  reviewer: glm-5.1
+  security-reviewer: glm-5.1
 requires_repo_analysis: true
 requires_approval: false
 metadata:
   stage: phase-2
-

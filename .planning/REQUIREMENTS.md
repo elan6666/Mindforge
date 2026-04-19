@@ -1,76 +1,101 @@
-# Requirements: 多Agent智能软件研发辅助平台
+# Requirements: Mindforge
 
 **Defined:** 2026-04-18  
-**Core Value:** 基于 `OpenHands` 交付一个通过预设模式驱动多角色协作的多 Agent 助手平台。
+**Last updated:** 2026-04-19
 
 ## v1 Requirements
 
 ### Foundation
 
-- [x] **FOUND-01**: 用户可以在本地启动基础服务或任务入口。
-- [x] **FOUND-02**: 系统可以通过统一适配层把基础任务请求转发给 `OpenHands`。
-- [x] **FOUND-03**: 系统提供 `FastAPI` 扩展入口和统一请求/响应模型。
-- [x] **FOUND-04**: 系统可以记录最小可用的任务日志和运行结果摘要。
+- [x] **FOUND-01**: The user can start a local service and submit tasks.
+- [x] **FOUND-02**: The system forwards baseline task execution through a unified adapter boundary to OpenHands.
+- [x] **FOUND-03**: The backend exposes a FastAPI entrypoint with normalized request and response contracts.
+- [x] **FOUND-04**: The system records minimal task logs and execution summaries.
 
 ### Preset Templates
 
-- [x] **PRESET-01**: 用户可以选择代码工程模式、代码审查模式、文档整理模式、论文修改模式发起任务。
-- [x] **PRESET-02**: 系统可以根据 `preset_mode` 加载模板配置。
-- [x] **PRESET-03**: 模板配置至少包含 `preset_mode`、`agent_roles`、`execution_flow`、`default_models`、`requires_repo_analysis`、`requires_approval`。
+- [x] **PRESET-01**: The user can choose preset modes including code engineering, code review, document organization, and paper revision.
+- [x] **PRESET-02**: The system loads preset configuration from `preset_mode`.
+- [x] **PRESET-03**: Presets include at least `preset_mode`, `agent_roles`, `execution_flow`, `default_models`, `requires_repo_analysis`, and `requires_approval`.
 
 ### Agent Collaboration
 
-- [x] **AGENT-01**: 代码工程模式下系统可以自动实例化项目经理、后端、前端、审查 Agent。
-- [x] **AGENT-02**: 系统支持按“规划 -> 实现 -> 审查”的串行流程调度任务。
-- [x] **AGENT-03**: 系统可以汇总各阶段结果并生成结构化输出。
+- [x] **AGENT-01**: In `code-engineering`, the system auto-instantiates project manager, backend, frontend, and reviewer roles.
+- [x] **AGENT-02**: The system supports a serial role-based flow of planning, implementation, and review.
+- [x] **AGENT-03**: The system returns structured stage results and an aggregate final output.
 
 ### Repository Context
 
-- [x] **REPO-01**: 系统可以分析本地仓库目录结构。
-- [x] **REPO-02**: 系统可以识别关键文件，如 `README`、依赖文件、配置文件、Docker 文件和入口文件。
-- [x] **REPO-03**: 系统可以生成并注入结构化仓库摘要。
+- [x] **REPO-01**: The system can analyze a local repository structure.
+- [x] **REPO-02**: The system can identify important files such as `README`, dependency files, config files, Docker files, and entrypoints.
+- [x] **REPO-03**: The system can generate and inject a structured repository summary.
 
-### Model Routing
+### Backend Model Routing
 
-- [ ] **MODEL-01**: 系统可以维护多个模型配置。
-- [ ] **MODEL-02**: 系统可以按任务类型和预设模式进行模型路由。
-- [ ] **MODEL-03**: 系统支持默认模型和优先级设置。
+- [x] **MODEL-01**: The system can maintain multiple provider and model definitions.
+- [x] **MODEL-02**: The system can route model selection by task type, preset mode, and agent role.
+- [x] **MODEL-03**: The system supports default models, explicit overrides, and priority levels.
 
-### Control & History
+### OpenHands Reuse Strategy
 
-- [ ] **CTRL-01**: 系统在高风险步骤触发人工审批。
-- [ ] **CTRL-02**: 系统记录审批结果、任务级日志和阶段级日志。
-- [ ] **CTRL-03**: 系统支持查看历史任务、审批记录和结果产物索引。
+- [x] **REUSE-01**: For major new subsystems, the implementation plan identifies preferred OpenHands reference modules before new Mindforge code is introduced.
+- [x] **REUSE-02**: The project reuses or adapts MIT-licensed OpenHands patterns for frontend workspace structure, runtime-oriented tools, skill/instruction loading, or agent abstractions where that is cheaper and clearer than a greenfield rewrite.
+- [x] **REUSE-03**: The project does not copy `enterprise/`-scoped OpenHands code or adopt unnecessary cloud or multi-tenant complexity into the prototype.
 
-### External Context & Results
+### Frontend Workspace
 
-- [ ] **GH-01**: 系统支持读取 GitHub 仓库元信息。
-- [ ] **GH-02**: 系统支持读取 Issue 和 PR 摘要作为上下文。
-- [ ] **RESULT-01**: 系统展示最终结果、阶段摘要、关键信息和执行日志。
+- [x] **UI-01**: The frontend provides a Codex-like app shell with a left sidebar for new task, history, projects, presets, and settings entrypoints.
+- [x] **UI-02**: The main workspace provides a chat-style task composer with common controls such as preset selection, repository input, default coordinator model, and submit action.
+- [x] **UI-03**: The frontend provides execution/result panels for final output, stage traces, repository summary, and task metadata.
+
+### Model Control Center And Rule Templates
+
+- [x] **RULE-01**: The frontend lets the user manage available models and set model priority as `high`, `medium`, `low`, or `disabled`.
+- [x] **RULE-02**: The frontend lets the user author rule templates that assign different responsibilities or agent roles to different models.
+- [x] **RULE-03**: The system supports a default coordinator model that first analyzes the task, then selects a rule template, then assigns models to agents automatically.
+- [x] **RULE-04**: The system supports per-scenario rules such as paper revision where different models can be assigned to content revision, style review, and content review.
+
+### Control And History
+
+- [x] **CTRL-01**: The system triggers approval for high-risk actions.
+- [x] **CTRL-02**: The system records approval decisions, task-level logs, and stage-level logs.
+- [x] **CTRL-03**: The system supports viewing task history, approval records, and result artifacts.
+
+### External Context And Results
+
+- [ ] **GH-01**: The system can read GitHub repository metadata.
+- [ ] **GH-02**: The system can read issue and pull request summaries as context.
+- [ ] **RESULT-01**: The system presents final results, stage summaries, key metadata, and execution logs.
 
 ## v2 Requirements
 
 ### Advanced Collaboration
 
-- **ADV-01**: 系统支持并行多 Agent 调度。
-- **ADV-02**: 系统支持 `worktree` 隔离执行。
-- **ADV-03**: 系统支持长期记忆和跨项目知识沉淀。
+- [ ] **ADV-01**: The system supports parallel multi-agent orchestration.
+- [ ] **ADV-02**: The system supports worktree-isolated execution.
+- [ ] **ADV-03**: The system supports long-term memory and cross-project knowledge reuse.
 
 ### Academic Paper Revision
 
-- **PAPER-01**: 系统支持在 `paper-revision` 模式下实例化标准/文风分析 Agent、改写 Agent 和审稿 Agent。
-- **PAPER-02**: 当任务指定为期刊论文时，系统支持检索期刊官网投稿规范，并汇总相关期刊论文的结构与文风特征。
-- **PAPER-03**: 系统支持基于审稿意见进行至少一轮“审稿 -> 修改 -> 复审”循环，并输出最终修改摘要。
+- [ ] **PAPER-01**: In `paper-revision`, the system instantiates standards analysis, reviser, and reviewer agents.
+- [ ] **PAPER-02**: For journal tasks, the system can collect journal submission guidelines and summarize style patterns from relevant papers.
+- [ ] **PAPER-03**: The system supports at least one full revision loop of review, revise, and re-review.
 
-## Out of Scope
+### Skills And Repository Instructions
+
+- [ ] **SKILL-01**: The system supports a directory for reusable, shareable skill content that captures domain knowledge and workflow guidance.
+- [ ] **SKILL-02**: The system supports repository-specific instructions that are auto-loaded for a given project, similar in spirit to OpenHands repo instructions.
+- [ ] **SKILL-03**: The system keeps executable runtime tools separate from prompt/instruction skills so architecture remains understandable.
+
+## Out Of Scope
 
 | Feature | Reason |
 |---------|--------|
-| 自研 Agent 内核 | 当前路线明确复用 `OpenHands`，避免重复造轮子 |
-| GitHub 写操作 | MVP 先保持只读，降低风险和实现复杂度 |
-| 多租户权限系统 | 超出课程设计和原型验证阶段范围 |
-| 浏览器 Agent | 第一阶段不引入额外自动化复杂度 |
-| 自动投稿与版权处理 | 论文模式仅提供修改辅助，不负责投稿和版权相关流程 |
+| Custom agent runtime | The roadmap is explicitly based on OpenHands reuse. |
+| GitHub write operations | The current milestone stays read-only to reduce risk. |
+| Full multi-tenant auth | Out of scope for the current prototype milestone. |
+| Heavy browser automation | Deferred until the core orchestration path is stable. |
+| Automatic paper submission | Paper mode assists revision only. |
 
 ## Traceability
 
@@ -89,25 +114,34 @@
 | REPO-01 | Phase 4 | Complete |
 | REPO-02 | Phase 4 | Complete |
 | REPO-03 | Phase 4 | Complete |
-| MODEL-01 | Phase 5 | Pending |
-| MODEL-02 | Phase 5 | Pending |
-| MODEL-03 | Phase 5 | Pending |
-| CTRL-01 | Phase 6 | Pending |
-| CTRL-02 | Phase 6 | Pending |
-| CTRL-03 | Phase 6 | Pending |
-| GH-01 | Phase 7 | Pending |
-| GH-02 | Phase 7 | Pending |
-| RESULT-01 | Phase 7 | Pending |
-| PAPER-01 | Phase 8 | Pending |
-| PAPER-02 | Phase 8 | Pending |
-| PAPER-03 | Phase 8 | Pending |
+| MODEL-01 | Phase 5 | Complete |
+| MODEL-02 | Phase 5 | Complete |
+| MODEL-03 | Phase 5 | Complete |
+| REUSE-01 | Phase 5 / Phase 6 / future phases | Complete |
+| REUSE-02 | Phase 5 / Phase 6 / Phase 7 / future phases | Complete |
+| REUSE-03 | Phase 5 / future phases | Complete |
+| UI-01 | Phase 6 | Complete |
+| UI-02 | Phase 6 | Complete |
+| UI-03 | Phase 6 / Phase 9 | Complete |
+| RULE-01 | Phase 7 | Complete |
+| RULE-02 | Phase 7 | Complete |
+| RULE-03 | Phase 7 | Complete |
+| RULE-04 | Phase 7 / Phase 10 | Complete |
+| CTRL-01 | Phase 8 | Complete |
+| CTRL-02 | Phase 8 | Complete |
+| CTRL-03 | Phase 8 | Complete |
+| GH-01 | Phase 9 | Pending |
+| GH-02 | Phase 9 | Pending |
+| RESULT-01 | Phase 9 | Pending |
+| PAPER-01 | Phase 10 | Pending |
+| PAPER-02 | Phase 10 | Pending |
+| PAPER-03 | Phase 10 | Pending |
+| SKILL-01 | Backlog / future phase | Pending |
+| SKILL-02 | Backlog / future phase | Pending |
+| SKILL-03 | Backlog / future phase | Pending |
 
 **Coverage:**
-- v1 requirements: 22 total
-- v2 requirements: 6 total
-- Roadmap-mapped requirements: 25
-- Unmapped requirements: 3
-
----
-*Requirements defined: 2026-04-18*  
-*Last updated: 2026-04-18 after adding paper-revision mode*
+- v1 requirements: 29 total
+- v2 requirements: 9 total
+- roadmap-mapped requirements: 32
+- unmapped requirements: 6

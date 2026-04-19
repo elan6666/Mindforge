@@ -8,7 +8,7 @@ execution_flow:
   - execute
   - summarize
 default_models:
-  coordinator: default-model
+  coordinator: gpt-5.4
 requires_repo_analysis: false
 requires_approval: false
 metadata:

@@ -60,6 +60,16 @@
 - `output/doc/多Agent智能软件研发辅助平台_概要设计说明书_OpenHands版.docx` - 模块划分与系统流程背景
 - `output/doc/多Agent智能软件研发辅助平台_详细设计说明书_OpenHands版.docx` - 模块职责、数据对象和接口背景
 
+### OpenHands Reference Areas
+- `E:/CODE/OpenHands-main/OpenHands-main/README.md` - OpenHands 产品入口划分，帮助区分 SDK、CLI、Local GUI 和 Cloud
+- `E:/CODE/OpenHands-main/OpenHands-main/openhands/agenthub/README.md` - agent / state / action / observation 的上游抽象方向
+- `E:/CODE/OpenHands-main/OpenHands-main/openhands/runtime/plugins/agent_skills/README.md` - 运行时工具能力应如何与提示型技能分层
+
+### Reuse Guidance
+- Phase 1 先学习 OpenHands 的边界划分方式，不要试图在本阶段复制完整运行时
+- 适配层优先参考上游 runtime handoff 思路，不要发明长期独立的 Mindforge 内部传输协议
+- 明确排除 `enterprise/` 代码和云端多租户逻辑
+
 </canonical_refs>
 
 <code_context>

@@ -9,9 +9,25 @@ class TaskRequest(BaseModel):
     """Incoming task payload accepted by the API."""
 
     prompt: str = Field(..., min_length=1, description="Primary task prompt.")
+    task_type: str | None = Field(
+        default=None,
+        description="Optional high-level task type used by model routing.",
+    )
     preset_mode: str | None = Field(
         default=None,
         description="Optional preset or scenario identifier.",
+    )
+    model_override: str | None = Field(
+        default=None,
+        description="Optional explicit single-pass model override.",
+    )
+    rule_template_id: str | None = Field(
+        default=None,
+        description="Optional explicit rule template selection for dynamic role assignment.",
+    )
+    role_model_overrides: dict[str, str] = Field(
+        default_factory=dict,
+        description="Optional role-to-model overrides for multi-stage execution.",
     )
     repo_path: str | None = Field(
         default=None,

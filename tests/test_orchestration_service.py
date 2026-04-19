@@ -1,6 +1,7 @@
 from app.backend.integration.openhands_adapter import AdapterResult
 from app.backend.schemas.repository import RepoAnalysisResult, RepoKeyFile, RepoSummary
 from app.backend.schemas.task import TaskRequest
+from app.backend.services.model_routing_service import get_model_routing_service
 from app.backend.services.orchestration_service import SerialOrchestrationService
 from app.backend.services.preset_service import PresetService
 
@@ -35,13 +36,13 @@ def build_repo_analysis() -> RepoAnalysisResult:
         status="analyzed",
         repo_summary=RepoSummary(
             repo_path=".",
-            resolved_path="E:/CODE/agent助手",
-            repository_name="agent助手",
+            resolved_path="E:/CODE/Mindforge",
+            repository_name="Mindforge",
             detected_stack=["Python"],
             top_level_directories=["app", "tests"],
             key_files=[RepoKeyFile(path="README.md", category="documentation")],
             entrypoints=["app/backend/main.py"],
-            summary_text="Repository 'agent助手' appears to use Python.",
+            summary_text="Repository 'Mindforge' appears to use Python.",
         ),
     )
 
@@ -49,7 +50,7 @@ def build_repo_analysis() -> RepoAnalysisResult:
 def test_execute_code_engineering_runs_all_roles_in_order():
     preset, _ = PresetService().resolve("code-engineering")
     adapter = RecordingAdapter()
-    service = SerialOrchestrationService(adapter)
+    service = SerialOrchestrationService(adapter, get_model_routing_service())
 
     response = service.execute_code_engineering(
         TaskRequest(prompt="Add login", preset_mode="code-engineering", repo_path="."),
@@ -66,6 +67,12 @@ def test_execute_code_engineering_runs_all_roles_in_order():
         "frontend",
         "reviewer",
     ]
+    assert [stage["model"] for stage in trace["stages"]] == [
+        "gpt-5.4",
+        "gpt-5.4",
+        "kimi-2.5",
+        "glm-5.1",
+    ]
     assert trace["completed_stages"] == 4
     assert all("repo_analysis" in call["metadata"] for call in adapter.calls)
     assert "Repository summary:" in adapter.calls[0]["prompt"]
@@ -74,7 +81,7 @@ def test_execute_code_engineering_runs_all_roles_in_order():
 def test_execute_code_engineering_stops_on_failed_stage():
     preset, _ = PresetService().resolve("code-engineering")
     adapter = RecordingAdapter(fail_on_role="backend")
-    service = SerialOrchestrationService(adapter)
+    service = SerialOrchestrationService(adapter, get_model_routing_service())
 
     response = service.execute_code_engineering(
         TaskRequest(prompt="Add login", preset_mode="code-engineering"),
@@ -90,3 +97,25 @@ def test_execute_code_engineering_stops_on_failed_stage():
         "project-manager",
         "backend",
     ]
+
+
+def test_execute_code_engineering_honors_role_model_override():
+    preset, _ = PresetService().resolve("code-engineering")
+    adapter = RecordingAdapter()
+    service = SerialOrchestrationService(adapter, get_model_routing_service())
+
+    response = service.execute_code_engineering(
+        TaskRequest(
+            prompt="Add login",
+            preset_mode="code-engineering",
+            role_model_overrides={"frontend": "gpt-5.4"},
+        ),
+        preset,
+    )
+
+    trace = response.data.metadata["orchestration"]
+
+    assert trace["stages"][2]["model"] == "gpt-5.4"
+    assert trace["stages"][2]["metadata"]["model_selection"]["selection_source"] == (
+        "explicit-role-override"
+    )

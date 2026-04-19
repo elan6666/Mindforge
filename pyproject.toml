@@ -1,7 +1,7 @@
 [project]
-name = "multi-agent-assistant"
+name = "mindforge"
 version = "0.1.0"
-description = "OpenHands-based multi-agent assistant backend skeleton."
+description = "Mindforge is an OpenHands-based multi-agent assistant backend skeleton."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

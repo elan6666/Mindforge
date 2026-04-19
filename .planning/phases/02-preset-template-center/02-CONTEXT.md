@@ -71,6 +71,15 @@
 - `output/doc/多Agent智能软件研发辅助平台_概要设计说明书_OpenHands版.docx` - 模板中心与模式化协作的整体背景
 - `output/doc/多Agent智能软件研发辅助平台_详细设计说明书_OpenHands版.docx` - 模板对象和后续 Agent 协作模块的背景设计
 
+### OpenHands Reference Areas
+- `E:/CODE/OpenHands-main/OpenHands-main/skills/README.md` - OpenHands 对“可复用 skills / 仓库私有 instructions”的划分方式
+- `E:/CODE/OpenHands-main/OpenHands-main/openhands/memory/memory.py` - workspace context、repo instructions 和触发型知识是怎样被加载到执行链里的
+
+### Reuse Guidance
+- Phase 2 的 preset 是 Mindforge 产品层能力，不需要模仿 OpenHands 内部命名
+- 但模板字段设计要考虑后续能和 skills / repo instructions / workspace context 共存，而不是互相打架
+- 优先学习 OpenHands 如何把“全局共享内容”和“仓库私有内容”分开，而不是以后再返工 preset 结构
+
 </canonical_refs>
 
 <code_context>
@@ -106,4 +115,3 @@
 
 *Phase: 02-preset-template-center*
 *Context gathered: 2026-04-18*
-

@@ -11,9 +11,9 @@ execution_flow:
   - review
   - iterate
 default_models:
-  standards-editor: research-model
-  reviser: writing-model
-  reviewer: review-model
+  standards-editor: gpt-5.4
+  reviser: kimi-2.5
+  reviewer: glm-5.1
 requires_repo_analysis: false
 requires_approval: false
 metadata:

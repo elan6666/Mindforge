@@ -1,151 +1,242 @@
-# Roadmap: 多Agent智能软件研发辅助平台
+# Roadmap: Mindforge
 
 ## Overview
 
-本项目围绕 `OpenHands 底座 + 模板中心 + 角色化协作` 推进建设，优先交付代码工程模式，并为论文修改模式预留扩展位。路线图遵循“先完成 OpenHands 接入和基础工程，再逐步补齐模板、调度、仓库分析、模型路由、审批历史和 GitHub 只读集成，最后扩展论文修改专用编排”的顺序，避免在早期把系统复杂度拉得过高。
+Mindforge is being built in a controlled sequence:
+
+1. establish the OpenHands-based backend skeleton,
+2. add presets and role orchestration,
+3. inject repository context,
+4. build backend model routing and provider/model registry,
+5. add a Codex-like frontend workspace shell,
+6. add a user-facing model control center and rule templates,
+7. then continue with approval, history, GitHub read-only context, and the full academic paper revision workflow.
+
+This keeps backend execution concerns separate from user-facing model and rule authoring concerns.
+
+## Implementation Guidance
+
+Mindforge should avoid greenfield rewrites where OpenHands already provides a usable MIT-licensed pattern. For each new major subsystem, the plan should first check whether OpenHands already solves the same problem in a reusable way, then adapt or simplify that implementation instead of inventing a parallel local abstraction.
+
+Preferred OpenHands reference areas:
+
+- frontend workspace shell: `frontend/src/components/features/conversation/`, `frontend/src/components/features/chat/`, `frontend/src/components/features/browser/`
+- reusable skills and repo instructions: `skills/README.md`, `skills/`, `.openhands/microagents/`, `.openhands/skills/`
+- skill/instruction loading and workspace-context recall: `openhands/memory/memory.py`
+- runtime-oriented tool separation: `openhands/runtime/plugins/agent_skills/`
+- agent/state/action abstractions and delegation concepts: `openhands/agenthub/README.md`
+
+Explicit exclusions:
+
+- do not copy `enterprise/` code into the prototype roadmap
+- do not import OpenHands cloud or multi-tenant complexity unless a later phase explicitly requires it
+- do not recreate OpenHands-compatible structures locally first if a simpler adaptation of the upstream pattern would work
 
 ## Phases
 
 **Phase Numbering:**
-- Integer phases (`1`, `2`, `3`): 正常规划阶段
-- Decimal phases (`2.1`, `2.2`): 紧急插入阶段
+- Integer phases (`1`, `2`, `3`): normal planned phases
+- Decimal phases (`2.1`, `2.2`): inserted urgent phases
 
-- [x] **Phase 1: OpenHands Foundation** - 建立项目基础结构，完成 `OpenHands` 适配层和 `FastAPI` 入口
-- [x] **Phase 2: Preset Template Center** - 建立模板配置机制和预设模式入口
-- [x] **Phase 3: Agent Instantiation & Orchestration** - 基于模板实现角色化 Agent 实例化与串行调度
-- [x] **Phase 4: Repository Analysis & Context Injection** - 补齐仓库分析、关键文件识别和上下文注入
-- [ ] **Phase 5: Model Routing** - 实现统一模型配置、模式路由和默认策略
-- [ ] **Phase 6: Approval & History** - 增强审批、执行日志、历史记录和结果索引
-- [ ] **Phase 7: GitHub Read-Only Context** - 接入 GitHub 只读上下文并完善结果展示
-- [ ] **Phase 8: Academic Paper Revision Mode** - 实现论文标准分析、改写与审稿循环
+- [x] **Phase 1: OpenHands Foundation** - build the base project structure, FastAPI entrypoint, and OpenHands adapter boundary
+- [x] **Phase 2: Preset Template Center** - build preset configuration and preset discovery
+- [x] **Phase 3: Agent Instantiation & Orchestration** - instantiate role-based agents and run serial orchestration for `code-engineering`
+- [x] **Phase 4: Repository Analysis & Context Injection** - analyze local repositories and inject repo summaries into execution context
+- [x] **Phase 5: Model Routing & Registry** - implement backend provider/model registry, routing rules, and execution-time model selection
+- [x] **Phase 6: Frontend Workspace Shell** - add a Codex-like app shell with sidebar navigation, chat workspace, history, presets, and result panels
+- [x] **Phase 7: Model Control Center & Rule Templates** - add user-facing model management, model priorities, rule templates, and dynamic agent-model assignment
+- [x] **Phase 8: Approval & History** - add approvals, execution logs, history, and result indexing
+- [ ] **Phase 9: GitHub Read-Only Context** - add GitHub repository, issue, and PR read-only context plus richer result presentation
+- [ ] **Phase 10: Academic Paper Revision Mode** - complete the paper revision workflow including standards analysis, rewriting, reviewer loops, and journal-guideline-driven rules
 
 ## Phase Details
 
 ### Phase 1: OpenHands Foundation
 
-**Goal**: 建立基于 `OpenHands` 的项目基础结构，形成可运行的本地单用户服务，提供统一任务入口、适配层和规范化响应。  
+**Goal**: Build the OpenHands-based backend skeleton and provide a runnable local single-user service.  
 **Depends on**: Nothing  
 **Requirements**: [FOUND-01, FOUND-02, FOUND-03, FOUND-04]  
 **Success Criteria**:
-1. 用户可以在本地启动基础服务。
-2. 系统可以接收基础任务请求并通过适配层转发给 `OpenHands`。
-3. 系统可以返回统一格式结果，并记录最小可用日志。  
+1. A user can start the local backend service.
+2. The system accepts a task request and forwards it through the adapter boundary.
+3. The system returns normalized responses and minimal logs.  
 **Plans**: 3 plans
 
 Plans:
-- [x] 01-01: 建立基础工程目录、配置结构和运行骨架
-- [x] 01-02: 实现 `FastAPI` 任务入口和统一请求/响应模型
-- [x] 01-03: 实现 `OpenHands` 适配层接线与本地端到端演示
+- [x] 01-01: create the project skeleton, configuration, and runtime bootstrap
+- [x] 01-02: implement the FastAPI task API and normalized request/response contracts
+- [x] 01-03: connect the OpenHands adapter and complete a local end-to-end demo
+
+Calibration note:
+- Phase 1 establishes the OpenHands adapter boundary and demo bridge, but it should not be described as full embedded OpenHands runtime integration yet.
 
 ### Phase 2: Preset Template Center
 
-**Goal**: 建立模板中心和预设模式入口，支持代码工程、代码审查、文档整理和论文修改模式。  
+**Goal**: Build a preset center and entrypoint for multiple execution modes.  
 **Depends on**: Phase 1  
 **Requirements**: [PRESET-01, PRESET-02, PRESET-03]  
 **Success Criteria**:
-1. 用户可以选择不同 `preset_mode` 发起任务。
-2. 系统可以根据模式加载模板配置。
-3. 模板数据可被后续调度链消费。  
+1. Users can submit tasks with different `preset_mode` values.
+2. The system loads the correct preset configuration.
+3. Preset data can be consumed by downstream orchestration.  
 **Plans**: 2 plans
 
 Plans:
-- [x] 02-01: 设计模板数据结构与默认配置
-- [x] 02-02: 实现模板加载逻辑与模式选择入口
+- [x] 02-01: design the preset schema and default preset files
+- [x] 02-02: implement preset loading, discovery, and preset-aware task submission
+
+Calibration note:
+- Presets are a Mindforge product-layer abstraction and should remain decoupled from OpenHands internals so downstream features can evolve without patching the upstream runtime.
 
 ### Phase 3: Agent Instantiation & Orchestration
 
-**Goal**: 基于模板实现角色化 Agent 实例化与串行任务调度，优先覆盖代码工程模式。  
+**Goal**: Instantiate role-based agents from presets and orchestrate `code-engineering` as a serial flow.  
 **Depends on**: Phase 2  
 **Requirements**: [AGENT-01, AGENT-02, AGENT-03]  
 **Success Criteria**:
-1. 代码工程模式下可以自动实例化项目经理、后端、前端、审查 Agent。
-2. 任务可以按“规划 -> 实现 -> 审查”的既定流程执行。
-3. 系统可以生成阶段摘要和汇总结果。  
+1. `code-engineering` auto-instantiates project manager, backend, frontend, and reviewer roles.
+2. Tasks execute through a deterministic serial orchestration flow.
+3. The system returns structured stage summaries and final output.  
 **Plans**: 2 plans
 
 Plans:
-- [x] 03-01: 定义角色职责和实例化规则
-- [x] 03-02: 实现串行调度流程和阶段结果汇总
+- [x] 03-01: define role responsibilities and instantiation rules
+- [x] 03-02: implement serial orchestration and stage result aggregation
+
+Calibration note:
+- The current serial orchestration is a valid MVP path, but future phases should converge toward OpenHands-style agent, state, action, and observation semantics instead of growing an unrelated local execution protocol.
 
 ### Phase 4: Repository Analysis & Context Injection
 
-**Goal**: 增强研发场景所需的仓库理解能力，支持本地仓库扫描、关键文件识别和上下文注入。  
+**Goal**: Add repository understanding for local development tasks.  
 **Depends on**: Phase 3  
 **Requirements**: [REPO-01, REPO-02, REPO-03]  
 **Success Criteria**:
-1. 系统可以对指定仓库生成结构化摘要。
-2. 系统可以识别 `README`、依赖文件、配置文件和关键入口文件。
-3. 调度模块可以把仓库摘要注入任务上下文。  
+1. The system can produce a structured repository summary.
+2. The system can identify key files, dependencies, config files, and likely entrypoints.
+3. Repo context is injected into execution before orchestration.  
 **Plans**: 2 plans
 
 Plans:
-- [x] 04-01: 实现仓库扫描与关键文件识别
-- [x] 04-02: 实现 `Repo Summary` 和上下文注入
+- [x] 04-01: implement repository scanning and key-file detection
+- [x] 04-02: inject `Repo Summary` into task and orchestration context
 
-### Phase 5: Model Routing
+Calibration note:
+- Repository analysis remains intentionally lightweight and should later merge into a broader workspace-context layer that can also host reusable skills and repository-specific instructions.
 
-**Goal**: 建立统一模型配置和基于模式、任务类型的模型路由能力。  
+### Phase 5: Model Routing & Registry
+
+**Goal**: Build the backend provider/model registry and routing engine.  
 **Depends on**: Phase 4  
-**Requirements**: [MODEL-01, MODEL-02, MODEL-03]  
+**Requirements**: [MODEL-01, MODEL-02, MODEL-03, REUSE-01, REUSE-02, REUSE-03]  
 **Success Criteria**:
-1. 系统可以维护多个模型配置。
-2. 不同模式和任务类型可以选择正确模型。
-3. 模型配置变更可被执行链读取。  
-**Plans**: TBD
+1. The system can store multiple providers and model definitions.
+2. The system can resolve models by preset mode, task type, and agent role.
+3. The system supports explicit model overrides plus priority-based defaults.  
+**Plans**: 2 plans
 
 Plans:
-- [ ] 05-01: 设计模型配置结构与默认策略
-- [ ] 05-02: 实现模式路由与管理入口
+- [x] 05-01: design provider/model schemas, priority levels, and fallback strategy
+- [x] 05-02: implement model registry APIs, routing service, and execution integration
 
-### Phase 6: Approval & History
+OpenHands-first references for implementation:
+- treat existing OpenHands runtime and agent abstractions as the upstream shape for execution-time model selection
+- prefer adapting OpenHands-compatible configuration boundaries over inventing a second internal runtime contract
 
-**Goal**: 建立高风险操作审批、执行日志、历史记录和结果索引。  
+### Phase 6: Frontend Workspace Shell
+
+**Goal**: Add a Codex-like application workspace for the main user interaction loop.  
 **Depends on**: Phase 5  
+**Requirements**: [UI-01, UI-02, UI-03, REUSE-01, REUSE-02, REUSE-03]  
+**Success Criteria**:
+1. The frontend provides a left sidebar with common navigation entries such as new task, session history, projects, presets, and settings.
+2. The main workspace exposes a chat-style task composer with common controls such as preset selection, repository input, default coordinator model, and submit action.
+3. The UI provides tabs or panels for final output, stage traces, repository summary, and task metadata.  
+**Plans**: 2 plans
+
+Plans:
+- [x] 06-01: design and implement the app shell, sidebar navigation, and session/task history layout
+- [x] 06-02: implement the chat workspace, common task controls, and execution/result panels
+
+OpenHands-first references for implementation:
+- reuse OpenHands workspace composition patterns from `frontend/src/components/features/conversation/`
+- mirror proven chat/input organization from `frontend/src/components/features/chat/`
+- borrow browser, terminal, and changes panel structure before designing custom panel systems
+
+### Phase 7: Model Control Center & Rule Templates
+
+**Goal**: Add a user-facing model control center and rule-template-driven dynamic model assignment.  
+**Depends on**: Phase 6  
+**Requirements**: [RULE-01, RULE-02, RULE-03, RULE-04, REUSE-01, REUSE-02, REUSE-03]  
+**Success Criteria**:
+1. Users can manage models from the frontend and set priority as `high`, `medium`, `low`, or `disabled`.
+2. Users can create rule templates that map different agent responsibilities to different models.
+3. The system uses a default coordinator model to analyze the task, select a matching rule template, and assign models to agents.
+4. Scenario rules such as paper revision can map different models to content revision, style review, and content review.  
+**Plans**: 2 plans
+
+Plans:
+- [x] 07-01: implement the frontend model control center and model priority management
+- [x] 07-02: implement rule-template authoring, coordinator analysis, and dynamic agent-model assignment
+
+OpenHands-first references for implementation:
+- reuse upstream settings and model-selection UX patterns where possible instead of designing a parallel settings system first
+- keep Mindforge-specific rule-template authoring as the custom layer on top of reused workspace and settings primitives
+
+### Phase 8: Approval & History
+
+**Goal**: Add approval checkpoints, execution logs, history, and result indexing.  
+**Depends on**: Phase 7  
 **Requirements**: [CTRL-01, CTRL-02, CTRL-03]  
 **Success Criteria**:
-1. Shell 执行、大范围文件修改和关键配置覆盖会触发审批。
-2. 审批结果、阶段日志和任务日志可查询。
-3. 历史记录页可以查看结果产物索引。  
-**Plans**: TBD
+1. High-risk actions trigger approval.
+2. Approval records, task logs, and stage logs can be queried.
+3. Users can browse task history and result artifacts.  
+**Plans**: 2 plans
 
 Plans:
-- [ ] 06-01: 实现审批触发和审批记录
-- [ ] 06-02: 实现日志和历史记录持久化
+- [x] 08-01: implement approval triggers and approval records
+- [x] 08-02: implement execution log and history persistence
 
-### Phase 7: GitHub Read-Only Context
+### Phase 9: GitHub Read-Only Context
 
-**Goal**: 通过 GitHub 仓库、Issue、PR 摘要补充外部上下文，并增强结果展示体验。  
-**Depends on**: Phase 6  
+**Goal**: Add GitHub repository, issue, and PR summaries as read-only context and improve result presentation.  
+**Depends on**: Phase 8  
 **Requirements**: [GH-01, GH-02, RESULT-01]  
 **Success Criteria**:
-1. 任务可以引入 GitHub 仓库元信息和 Issue/PR 摘要。
-2. 结果页能展示最终结果、阶段摘要和关键提示。
-3. 历史页和结果页满足课程演示要求。  
-**Plans**: TBD
+1. Tasks can use GitHub metadata and issue/PR summaries as external context.
+2. Result views show final output, stage summaries, and key execution signals.
+3. Result and history pages are presentation-ready.  
+**Plans**: 2 plans
 
 Plans:
-- [ ] 07-01: 实现 GitHub 只读上下文获取
-- [ ] 07-02: 增强结果页与历史页展示
+- [ ] 09-01: implement GitHub read-only context retrieval
+- [ ] 09-02: improve result and history presentation
 
-### Phase 8: Academic Paper Revision Mode
+### Phase 10: Academic Paper Revision Mode
 
-**Goal**: 基于 `paper-revision` 模式实现论文标准分析、文风对齐、审稿意见生成和多轮修改闭环，优先支持期刊论文场景。  
-**Depends on**: Phase 7  
-**Requirements**: [PAPER-01, PAPER-02, PAPER-03]  
+**Goal**: Complete the paper revision workflow with standards analysis, rewriting, reviewer loops, and journal-aware rule templates.  
+**Depends on**: Phase 9  
+**Requirements**: [PAPER-01, PAPER-02, PAPER-03, RULE-04, REUSE-01, REUSE-02, REUSE-03]  
 **Success Criteria**:
-1. `paper-revision` 模式下可以自动实例化标准/文风分析 Agent、改写 Agent 和审稿 Agent。
-2. 对于期刊论文，系统可以检索期刊官网投稿规范，并汇总同类论文的结构与文风特征。
-3. 系统可以执行至少一轮“标准分析 -> 改写 -> 审稿 -> 再修改”的循环，并返回最终修改摘要与审稿建议。  
-**Plans**: TBD
+1. `paper-revision` instantiates standards analysis, reviser, and reviewer agents.
+2. Journal tasks can use guideline collection and representative paper-style summaries.
+3. The workflow supports at least one complete cycle of review, revise, and re-review.
+4. Paper revision can consume Phase 6 rule templates for role-to-model assignment.  
+**Plans**: 2 plans
 
 Plans:
-- [ ] 08-01: 定义论文修改角色职责、期刊标准采集策略和输入输出结构
-- [ ] 08-02: 实现论文改写与审稿循环，并生成最终修改报告
+- [ ] 10-01: define paper revision role contracts, journal-guideline collection, and IO structure
+- [ ] 10-02: implement rewriting, reviewer loops, and final revision reports
+
+OpenHands-first references for implementation:
+- reuse the generic role, stage, and workspace-context mechanisms established in earlier reused subsystems
+- build paper revision as a Mindforge-specific workflow on top of reused orchestration and settings foundations rather than introducing a separate framework
 
 ## Progress
 
 **Execution Order:**  
-Phases execute in numeric order: `1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8`
+Phases execute in numeric order: `1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10`
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -153,7 +244,9 @@ Phases execute in numeric order: `1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8`
 | 2. Preset Template Center | 2/2 | Complete | 2026-04-18 |
 | 3. Agent Instantiation & Orchestration | 2/2 | Complete | 2026-04-18 |
 | 4. Repository Analysis & Context Injection | 2/2 | Complete | 2026-04-19 |
-| 5. Model Routing | 0/2 | Not started | - |
-| 6. Approval & History | 0/2 | Not started | - |
-| 7. GitHub Read-Only Context | 0/2 | Not started | - |
-| 8. Academic Paper Revision Mode | 0/2 | Not started | - |
+| 5. Model Routing & Registry | 2/2 | Complete | 2026-04-19 |
+| 6. Frontend Workspace Shell | 2/2 | Complete | 2026-04-19 |
+| 7. Model Control Center & Rule Templates | 2/2 | Complete | 2026-04-19 |
+| 8. Approval & History | 2/2 | Complete | 2026-04-19 |
+| 9. GitHub Read-Only Context | 0/2 | Not started | - |
+| 10. Academic Paper Revision Mode | 0/2 | Not started | - |

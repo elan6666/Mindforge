@@ -1,0 +1,167 @@
+import json
+
+import pytest
+
+from app.backend.schemas.model import ModelControlUpdate
+from app.backend.schemas.rule_template import RuleAssignment, RuleTemplateUpsert
+from app.backend.services.coordinator_selection_service import (
+    clear_coordinator_selection_service_cache,
+    get_coordinator_selection_service,
+)
+from app.backend.services.model_control_service import get_model_control_service
+from app.backend.services.model_loader import load_model_catalog
+from app.backend.services.model_registry_service import (
+    clear_model_registry_service_cache,
+    get_model_registry_service,
+)
+from app.backend.services.model_routing_service import clear_model_routing_service_cache
+from app.backend.services.rule_template_service import (
+    clear_rule_template_service_cache,
+    get_rule_template_service,
+)
+from app.backend.services.task_service import clear_task_service_cache
+
+
+@pytest.fixture()
+def isolated_model_control_storage(tmp_path, monkeypatch):
+    control_dir = tmp_path / "model_control"
+    control_dir.mkdir(parents=True, exist_ok=True)
+    overrides_path = control_dir / "model_overrides.json"
+    templates_path = control_dir / "rule_templates.json"
+    overrides_path.write_text('{"models": {}}', encoding="utf-8")
+    templates_path.write_text(
+        json.dumps(
+            {
+                "templates": [
+                    {
+                        "template_id": "code-engineering-default",
+                        "display_name": "Code Engineering Default",
+                        "description": "Default multi-role template",
+                        "preset_mode": "code-engineering",
+                        "task_types": ["planning", "review"],
+                        "default_coordinator_model_id": "gpt-5.4",
+                        "enabled": True,
+                        "is_default": True,
+                        "trigger_keywords": ["backend", "frontend", "login"],
+                        "assignments": [
+                            {
+                                "role": "frontend",
+                                "responsibility": "UI flow",
+                                "model_id": "kimi-2.5",
+                            }
+                        ],
+                        "notes": "",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    from app.backend.services import model_loader, rule_template_loader
+
+    monkeypatch.setattr(model_loader, "MODEL_CONTROL_DIR", control_dir)
+    monkeypatch.setattr(model_loader, "MODEL_OVERRIDES_PATH", overrides_path)
+    monkeypatch.setattr(rule_template_loader, "RULE_TEMPLATES_PATH", templates_path)
+
+    clear_model_registry_service_cache()
+    clear_model_routing_service_cache()
+    clear_rule_template_service_cache()
+    clear_coordinator_selection_service_cache()
+    clear_task_service_cache()
+
+    yield
+
+    clear_model_registry_service_cache()
+    clear_model_routing_service_cache()
+    clear_rule_template_service_cache()
+    clear_coordinator_selection_service_cache()
+    clear_task_service_cache()
+
+
+def test_model_control_updates_priority_and_enabled_state(isolated_model_control_storage):
+    service = get_model_control_service()
+
+    updated = service.update_model(
+        "gpt-5.4",
+        ModelControlUpdate(priority="low", enabled=False),
+    )
+
+    assert updated.model_id == "gpt-5.4"
+    assert updated.priority == "low"
+    assert updated.enabled is False
+    registry_model = get_model_registry_service().get_model("gpt-5.4")
+    assert registry_model is not None
+    assert registry_model.priority == "low"
+    assert registry_model.enabled is False
+
+
+def test_rule_template_upsert_and_selection(isolated_model_control_storage):
+    templates = get_rule_template_service()
+
+    templates.upsert_template(
+        RuleTemplateUpsert(
+            template_id="paper-style",
+            display_name="Paper Style",
+            description="Paper review rule",
+            preset_mode="paper-revision",
+            task_types=["writing"],
+            default_coordinator_model_id="gpt-5.4",
+            enabled=True,
+            is_default=True,
+            trigger_keywords=["paper", "abstract", "journal"],
+            assignments=[
+                RuleAssignment(
+                    role="style-reviewer",
+                    responsibility="Review writing style",
+                    model_id="kimi-2.5",
+                ),
+                RuleAssignment(
+                    role="reviewer",
+                    responsibility="Review content",
+                    model_id="glm-5.1",
+                ),
+            ],
+            notes="",
+        )
+    )
+
+    selection = get_coordinator_selection_service().select_template(
+        prompt="Please revise the journal paper abstract.",
+        preset_mode="paper-revision",
+        task_type="writing",
+    )
+
+    assert selection is not None
+    assert selection.template_id == "paper-style"
+    assert selection.coordinator_model_id == "gpt-5.4"
+    assert selection.role_model_overrides["style-reviewer"] == "kimi-2.5"
+
+
+def test_rule_template_validation_rejects_unknown_model(isolated_model_control_storage):
+    templates = get_rule_template_service()
+
+    with pytest.raises(ValueError):
+        templates.upsert_template(
+            RuleTemplateUpsert(
+                template_id="bad-template",
+                display_name="Bad Template",
+                description="Broken model reference",
+                preset_mode="code-engineering",
+                task_types=[],
+                default_coordinator_model_id="gpt-5.4",
+                enabled=True,
+                is_default=False,
+                trigger_keywords=[],
+                assignments=[
+                    RuleAssignment(
+                        role="frontend",
+                        responsibility="Frontend work",
+                        model_id="missing-model",
+                    )
+                ],
+                notes="",
+            )
+        )

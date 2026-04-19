@@ -9,10 +9,9 @@ execution_flow:
   - rewrite
   - polish
 default_models:
-  documenter: writing-model
-  editor: writing-model
+  documenter: kimi-2.5
+  editor: kimi-2.5
 requires_repo_analysis: false
 requires_approval: false
 metadata:
   stage: phase-2
-

@@ -3,10 +3,15 @@
 from dataclasses import dataclass
 
 from app.backend.integration.openhands_adapter import OpenHandsAdapter
+from app.backend.schemas.model import ModelSelection
 from app.backend.schemas.orchestration import OrchestrationTrace, StageExecution
 from app.backend.schemas.preset import PresetDefinition
 from app.backend.schemas.repository import RepoAnalysisResult
 from app.backend.schemas.task import TaskRequest, TaskResponse, TaskResponseData
+from app.backend.services.model_routing_service import (
+    ModelRoutingError,
+    ModelRoutingService,
+)
 
 ROLE_TITLES: dict[str, str] = {
     "project-manager": "Project Manager",
@@ -41,15 +46,27 @@ class StageDefinition:
     role: str
     stage_id: str
     stage_name: str
-    model: str
+    model_selection: ModelSelection
     instructions: str
 
 
 class SerialOrchestrationService:
-    """Execute multi-stage serial orchestration for supported presets."""
+    """Execute multi-stage serial orchestration for supported presets.
 
-    def __init__(self, adapter: OpenHandsAdapter) -> None:
+    The current implementation is a Mindforge-side MVP used to validate
+    role-based flows such as `code-engineering`. Future phases should keep the
+    product-level orchestration behavior but gradually align execution semantics
+    with upstream OpenHands agent, state, action, and observation concepts
+    instead of expanding a divergent custom protocol indefinitely.
+    """
+
+    def __init__(
+        self,
+        adapter: OpenHandsAdapter,
+        model_router: ModelRoutingService,
+    ) -> None:
         self.adapter = adapter
+        self.model_router = model_router
 
     def execute_code_engineering(
         self,
@@ -58,7 +75,7 @@ class SerialOrchestrationService:
         repo_analysis: RepoAnalysisResult | None = None,
     ) -> TaskResponse:
         """Run the code-engineering preset as a serial role chain."""
-        stage_defs = self._build_stage_definitions(preset)
+        stage_defs = self._build_stage_definitions(payload, preset)
         trace = OrchestrationTrace(
             preset_mode=preset.preset_mode,
             strategy="serial-role-orchestration",
@@ -80,12 +97,15 @@ class SerialOrchestrationService:
                 stage_id=stage.stage_id,
                 stage_name=stage.stage_name,
                 role=stage.role,
-                model=stage.model,
+                model=stage.model_selection.model_id,
                 status=result.status,
                 provider=result.provider,
                 summary=self._summarize_output(result.output),
                 output=result.output,
-                metadata=result.metadata,
+                metadata={
+                    **result.metadata,
+                    "model_selection": stage.model_selection.model_dump(),
+                },
                 error_message=result.error_message,
             )
             trace.stages.append(stage_execution)
@@ -100,18 +120,29 @@ class SerialOrchestrationService:
         trace.completed_stages = len(trace.stages)
         return self._build_success_response(payload, preset, trace)
 
-    def _build_stage_definitions(self, preset: PresetDefinition) -> list[StageDefinition]:
+    def _build_stage_definitions(
+        self,
+        payload: TaskRequest,
+        preset: PresetDefinition,
+    ) -> list[StageDefinition]:
         """Translate preset role order into concrete stage definitions."""
         stages: list[StageDefinition] = []
         for order, role in enumerate(preset.agent_roles, start=1):
             stage_id = role.replace("_", "-")
+            model_selection = self.model_router.resolve_for_role(
+                preset_mode=preset.preset_mode,
+                task_type=payload.task_type,
+                role=role,
+                explicit_model=payload.role_model_overrides.get(role),
+                preset_default_model=preset.default_models.get(role),
+            )
             stages.append(
                 StageDefinition(
                     order=order,
                     role=role,
                     stage_id=stage_id,
                     stage_name=ROLE_TITLES.get(role, role.replace("-", " ").title()),
-                    model=preset.default_models.get(role, "default-model"),
+                    model_selection=model_selection,
                     instructions=ROLE_INSTRUCTIONS.get(
                         role,
                         "Produce a role-specific implementation handoff.",
@@ -144,7 +175,8 @@ class SerialOrchestrationService:
                 "orchestration_stage": stage.stage_id,
                 "orchestration_stage_name": stage.stage_name,
                 "orchestration_stage_order": stage.order,
-                "orchestration_model": stage.model,
+                "orchestration_model": stage.model_selection.model_id,
+                "orchestration_model_selection": stage.model_selection.model_dump(),
                 "orchestration_previous_summaries": [
                     {
                         "stage_id": item.stage_id,
@@ -157,6 +189,8 @@ class SerialOrchestrationService:
                     repo_analysis.model_dump() if repo_analysis is not None else None
                 ),
             },
+            "model": stage.model_selection.upstream_model,
+            "provider_id": stage.model_selection.provider_id,
         }
 
     def _compose_stage_prompt(
