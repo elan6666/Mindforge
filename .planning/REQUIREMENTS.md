@@ -1,7 +1,7 @@
 # Requirements: Mindforge
 
 **Defined:** 2026-04-18  
-**Last updated:** 2026-04-19
+**Last updated:** 2026-04-30
 
 ## v1 Requirements
 
@@ -36,6 +36,13 @@
 - [x] **MODEL-02**: The system can route model selection by task type, preset mode, and agent role.
 - [x] **MODEL-03**: The system supports default models, explicit overrides, and priority levels.
 
+### Provider API Management
+
+- [x] **API-01**: The frontend lets users view provider/API connection settings and API key configured status.
+- [x] **API-02**: The backend persists non-secret provider overrides without rewriting the seed catalog.
+- [x] **API-03**: The system supports sanitized provider connection tests that never return API key values.
+- [x] **API-04**: Runtime model execution uses the effective provider configuration from seed catalog plus overrides.
+
 ### OpenHands Reuse Strategy
 
 - [x] **REUSE-01**: For major new subsystems, the implementation plan identifies preferred OpenHands reference modules before new Mindforge code is introduced.
@@ -63,9 +70,9 @@
 
 ### External Context And Results
 
-- [ ] **GH-01**: The system can read GitHub repository metadata.
-- [ ] **GH-02**: The system can read issue and pull request summaries as context.
-- [ ] **RESULT-01**: The system presents final results, stage summaries, key metadata, and execution logs.
+- [x] **GH-01**: The system can read GitHub repository metadata.
+- [x] **GH-02**: The system can read issue and pull request summaries as context.
+- [x] **RESULT-01**: The system presents final results, stage summaries, key metadata, and execution logs.
 
 ## v2 Requirements
 
@@ -77,9 +84,9 @@
 
 ### Academic Paper Revision
 
-- [ ] **PAPER-01**: In `paper-revision`, the system instantiates standards analysis, reviser, and reviewer agents.
-- [ ] **PAPER-02**: For journal tasks, the system can collect journal submission guidelines and summarize style patterns from relevant papers.
-- [ ] **PAPER-03**: The system supports at least one full revision loop of review, revise, and re-review.
+- [x] **PAPER-01**: In `paper-revision`, the system instantiates standards analysis, reviser, and reviewer agents.
+- [x] **PAPER-02**: For journal tasks, the system can collect journal submission guidelines and summarize style patterns from relevant papers.
+- [x] **PAPER-03**: The system supports at least one full revision loop of review, revise, and re-review.
 
 ### Skills And Repository Instructions
 
@@ -117,6 +124,10 @@
 | MODEL-01 | Phase 5 | Complete |
 | MODEL-02 | Phase 5 | Complete |
 | MODEL-03 | Phase 5 | Complete |
+| API-01 | Phase 11 | Complete |
+| API-02 | Phase 11 | Complete |
+| API-03 | Phase 11 | Complete |
+| API-04 | Phase 11 | Complete |
 | REUSE-01 | Phase 5 / Phase 6 / future phases | Complete |
 | REUSE-02 | Phase 5 / Phase 6 / Phase 7 / future phases | Complete |
 | REUSE-03 | Phase 5 / future phases | Complete |
@@ -130,18 +141,18 @@
 | CTRL-01 | Phase 8 | Complete |
 | CTRL-02 | Phase 8 | Complete |
 | CTRL-03 | Phase 8 | Complete |
-| GH-01 | Phase 9 | Pending |
-| GH-02 | Phase 9 | Pending |
-| RESULT-01 | Phase 9 | Pending |
-| PAPER-01 | Phase 10 | Pending |
-| PAPER-02 | Phase 10 | Pending |
-| PAPER-03 | Phase 10 | Pending |
+| GH-01 | Phase 9 | Complete |
+| GH-02 | Phase 9 | Complete |
+| RESULT-01 | Phase 9 | Complete |
+| PAPER-01 | Phase 10 | Complete |
+| PAPER-02 | Phase 10 | Complete |
+| PAPER-03 | Phase 10 | Complete |
 | SKILL-01 | Backlog / future phase | Pending |
 | SKILL-02 | Backlog / future phase | Pending |
 | SKILL-03 | Backlog / future phase | Pending |
 
 **Coverage:**
-- v1 requirements: 29 total
+- v1 requirements: 36 total
 - v2 requirements: 9 total
-- roadmap-mapped requirements: 32
+- roadmap-mapped requirements: 39
 - unmapped requirements: 6

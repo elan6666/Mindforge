@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app.backend.schemas.model import ModelControlUpdate
+from app.backend.schemas.model import ModelControlUpdate, ProviderControlUpdate
 from app.backend.schemas.rule_template import RuleAssignment, RuleTemplateUpsert
 from app.backend.services.coordinator_selection_service import (
     clear_coordinator_selection_service_cache,
@@ -27,8 +27,10 @@ def isolated_model_control_storage(tmp_path, monkeypatch):
     control_dir = tmp_path / "model_control"
     control_dir.mkdir(parents=True, exist_ok=True)
     overrides_path = control_dir / "model_overrides.json"
+    provider_overrides_path = control_dir / "provider_overrides.json"
     templates_path = control_dir / "rule_templates.json"
     overrides_path.write_text('{"models": {}}', encoding="utf-8")
+    provider_overrides_path.write_text('{"providers": {}}', encoding="utf-8")
     templates_path.write_text(
         json.dumps(
             {
@@ -64,6 +66,7 @@ def isolated_model_control_storage(tmp_path, monkeypatch):
 
     monkeypatch.setattr(model_loader, "MODEL_CONTROL_DIR", control_dir)
     monkeypatch.setattr(model_loader, "MODEL_OVERRIDES_PATH", overrides_path)
+    monkeypatch.setattr(model_loader, "PROVIDER_OVERRIDES_PATH", provider_overrides_path)
     monkeypatch.setattr(rule_template_loader, "RULE_TEMPLATES_PATH", templates_path)
 
     clear_model_registry_service_cache()
@@ -96,6 +99,38 @@ def test_model_control_updates_priority_and_enabled_state(isolated_model_control
     assert registry_model is not None
     assert registry_model.priority == "low"
     assert registry_model.enabled is False
+
+
+def test_model_control_updates_provider_overrides(isolated_model_control_storage):
+    service = get_model_control_service()
+
+    updated = service.update_provider(
+        "openai",
+        ProviderControlUpdate(
+            enabled=False,
+            api_base_url="https://openai.test/v1",
+            api_key_env="MIND_TEST_OPENAI_KEY",
+            protocol="openai",
+            anthropic_api_base_url="https://openai.test/anthropic",
+        ),
+    )
+
+    assert updated.provider_id == "openai"
+    assert updated.enabled is False
+    assert updated.api_base_url == "https://openai.test/v1"
+    assert updated.api_key_env == "MIND_TEST_OPENAI_KEY"
+    assert updated.protocol == "openai"
+    assert updated.anthropic_api_base_url == "https://openai.test/anthropic"
+
+    registry_provider = get_model_registry_service().get_provider("openai")
+    assert registry_provider is not None
+    assert registry_provider.enabled is False
+    assert registry_provider.api_base_url == "https://openai.test/v1"
+    assert registry_provider.metadata["api_key_env"] == "MIND_TEST_OPENAI_KEY"
+    assert registry_provider.metadata["protocol"] == "openai"
+    assert registry_provider.metadata["anthropic_api_base_url"] == (
+        "https://openai.test/anthropic"
+    )
 
 
 def test_rule_template_upsert_and_selection(isolated_model_control_storage):

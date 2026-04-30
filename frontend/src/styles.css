@@ -329,6 +329,11 @@ textarea {
   cursor: wait;
 }
 
+.secondary-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 .message-list {
   display: flex;
   flex-direction: column;
@@ -485,6 +490,46 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.settings-shell > .message {
+  margin-top: 0;
+}
+
+.provider-note {
+  margin: -4px 0 16px;
+}
+
+.provider-grid {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.provider-card {
+  gap: 14px;
+}
+
+.provider-secret-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #aeb8c7;
+}
+
+.key-ok {
+  color: #8ce5cf;
+}
+
+.key-missing {
+  color: #ffcf8a;
+}
+
+.provider-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
 }
 
 .toggle-row {

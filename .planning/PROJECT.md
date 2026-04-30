@@ -21,6 +21,7 @@ Mindforge is a multi-agent assistant platform for software development and acade
 9. Provide a Codex-like application workspace with sidebar navigation, chat-driven task entry, history, preset switching, and execution/result panels.
 10. Support approval checkpoints, execution logs, history, and GitHub read-only context.
 11. Learn selectively from OpenHands repository architecture, especially the separation between reusable skills, repository-specific instructions, runtime tools, and agent implementations.
+12. Provide a Provider/API Management Center so users can safely configure model providers, env-var based credentials, connection checks, and provider status.
 
 ## Target Users
 
@@ -37,6 +38,9 @@ Mindforge is a multi-agent assistant platform for software development and acade
 - Separate backend routing concerns from user-facing rule authoring concerns.
 - Keep the primary path narrow first, then expand with specialized workflows.
 - Make important execution decisions traceable and reviewable.
+- Treat Codex and Claude Code as the execution-quality floor: real codebase understanding, multi-file edits, tests, explanations, and reviewable delivery.
+- Treat OpenHands as the architecture reference for runtime boundaries, agent/action/observation concepts, skills, and repository instructions.
+- Keep Mindforge's differentiation in controllable product orchestration: presets, rules, roles, provider/model routing, approvals, history, and paper/development modes.
 
 ## In Scope
 
@@ -48,6 +52,7 @@ Mindforge is a multi-agent assistant platform for software development and acade
 - Unified provider and model routing
 - Codex-like app workspace and interaction shell
 - User-facing model control center
+- Provider/API Management Center with non-secret provider overrides and connection tests
 - Rule templates for assigning different models to different agents
 - Reusable skill content and repository-specific instructions
 - Approval, history, logs, and result views
@@ -98,6 +103,7 @@ Near-term planned expansion after the MVP:
 - A user can complete an end-to-end `code-engineering` task.
 - The system returns structured stage outputs and metadata.
 - The system can maintain multiple model definitions and route execution to the expected model.
+- The system can configure provider connection metadata and verify credential status without exposing API keys.
 - The system exposes a coherent frontend workspace for chat, task launch, history, and result inspection.
 - A user can manage model priorities and author rule templates from the frontend.
 - A user can define a scenario such as paper revision and map different responsibilities to different models.
@@ -120,6 +126,9 @@ Near-term planned expansion after the MVP:
 - Phase 6 complete: a runnable React + Vite workspace shell now provides sidebar navigation, chat-style task launch, session history, and result panels backed by the existing APIs.
 - Phase 7 complete: the frontend now exposes a model control center and rule-template editor, and the backend records coordinator-driven template selection plus effective role-model assignment.
 - Phase 8 complete: blocking approvals, SQLite-backed task/stage history, approval APIs, and frontend history/approval views are now in place.
-- Next up is Phase 9: GitHub read-only context and richer result presentation.
+- Phase 9 complete: GitHub read-only repository/issue/PR context is now available through task metadata, dedicated APIs, and frontend result/history views.
+- Phase 10 complete: academic paper revision now runs standards analysis, revision, style review, content review, iteration, and final re-review with journal/reference context support.
+- Phase 11 complete: Provider/API Management Center now exposes provider overrides, API key env-var status, and sanitized connection testing.
+- The current milestone is feature-complete and ready for audit, hardening, or next-milestone planning.
 - Skills architecture is currently planned as a selective follow-up capability rather than a prerequisite for Phase 5.
 - Future implementation phases should treat OpenHands as the default reference source for reusable MIT-licensed patterns before introducing Mindforge-specific replacements.

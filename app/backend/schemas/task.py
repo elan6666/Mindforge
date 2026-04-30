@@ -29,6 +29,32 @@ class TaskRequest(BaseModel):
         default_factory=dict,
         description="Optional role-to-model overrides for multi-stage execution.",
     )
+    github_repo: str | None = Field(
+        default=None,
+        description="Optional GitHub repository reference such as owner/repo.",
+    )
+    github_issue_number: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional GitHub issue number used for read-only context retrieval.",
+    )
+    github_pr_number: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional GitHub pull request number used for read-only context retrieval.",
+    )
+    journal_name: str | None = Field(
+        default=None,
+        description="Optional journal name used by paper-revision standards analysis.",
+    )
+    journal_url: str | None = Field(
+        default=None,
+        description="Optional journal guideline URL used for read-only standards context.",
+    )
+    reference_paper_urls: list[str] = Field(
+        default_factory=list,
+        description="Optional reference paper URLs used for style and structure context.",
+    )
     repo_path: str | None = Field(
         default=None,
         description="Optional repository path to analyze later.",

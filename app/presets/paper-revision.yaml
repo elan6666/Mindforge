@@ -4,20 +4,27 @@ description: Coordinate standards analysis, paper rewriting, and reviewer-style 
 agent_roles:
   - standards-editor
   - reviser
-  - reviewer
+  - style-reviewer
+  - content-reviewer
+  - final-reviewer
 execution_flow:
   - analyze-standards
   - revise
-  - review
+  - style-review
+  - content-review
   - iterate
+  - re-review
 default_models:
-  standards-editor: gpt-5.4
-  reviser: kimi-2.5
-  reviewer: glm-5.1
+  standards-editor: doubao-seed-2.0-lite
+  reviser: doubao-seed-2.0-lite
+  style-reviewer: doubao-seed-2.0-lite
+  content-reviewer: doubao-seed-2.0-lite
+  final-reviewer: doubao-seed-2.0-lite
 requires_repo_analysis: false
 requires_approval: false
 metadata:
-  stage: phase-2
+  stage: phase-10
   domain: academic-writing
   supports_journal_guidelines: true
   supports_reviewer_iteration: true
+  supports_style_and_content_reviewers: true

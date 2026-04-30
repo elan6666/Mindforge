@@ -9,8 +9,33 @@ export type PresetSummary = {
 export type ProviderSummary = {
   provider_id: string;
   display_name: string;
-  description: string;
+  description?: string;
   enabled: boolean;
+  api_base_url?: string | null;
+  protocol?: string | null;
+  api_key_env?: string | null;
+  api_key_configured?: boolean;
+  anthropic_api_base_url?: string | null;
+};
+
+export type ProviderControlUpdate = {
+  enabled?: boolean;
+  api_base_url?: string | null;
+  protocol?: string | null;
+  api_key_env?: string | null;
+  anthropic_api_base_url?: string | null;
+};
+
+export type ProviderConnectionTestResult = {
+  provider_id: string;
+  ok: boolean;
+  status: string;
+  detail: string;
+  protocol: string;
+  api_base_url?: string | null;
+  api_key_env?: string | null;
+  api_key_configured: boolean;
+  upstream_status?: number | null;
 };
 
 export type ModelSummary = {
@@ -99,6 +124,76 @@ export type RepoAnalysis = {
   error_message?: string | null;
 };
 
+export type GitHubRepositorySummary = {
+  owner: string;
+  name: string;
+  full_name: string;
+  description?: string | null;
+  html_url: string;
+  default_branch: string;
+  primary_language?: string | null;
+  stargazers_count: number;
+  forks_count: number;
+  open_issues_count: number;
+  visibility?: string | null;
+};
+
+export type GitHubIssueSummary = {
+  number: number;
+  title: string;
+  state: string;
+  html_url: string;
+  author?: string | null;
+  labels: string[];
+  comment_count: number;
+  body_excerpt: string;
+};
+
+export type GitHubPullRequestSummary = {
+  number: number;
+  title: string;
+  state: string;
+  html_url: string;
+  author?: string | null;
+  labels: string[];
+  comment_count: number;
+  review_comment_count: number;
+  draft: boolean;
+  merged: boolean;
+  head_ref?: string | null;
+  base_ref?: string | null;
+  body_excerpt: string;
+};
+
+export type GitHubContextSummary = {
+  repository?: GitHubRepositorySummary | null;
+  issue?: GitHubIssueSummary | null;
+  pull_request?: GitHubPullRequestSummary | null;
+};
+
+export type JournalGuidelineSummary = {
+  journal_name?: string | null;
+  journal_url?: string | null;
+  title?: string | null;
+  excerpt: string;
+  status: string;
+  error_message?: string | null;
+};
+
+export type ReferencePaperSummary = {
+  url: string;
+  title?: string | null;
+  excerpt: string;
+  status: string;
+  error_message?: string | null;
+};
+
+export type AcademicContextSummary = {
+  journal?: JournalGuidelineSummary | null;
+  reference_papers: ReferencePaperSummary[];
+  warnings: string[];
+};
+
 export type TaskResult = {
   status: string;
   message: string;
@@ -126,6 +221,8 @@ export type TaskResult = {
       effective_role_model_overrides?: Record<string, string>;
       orchestration?: OrchestrationTrace;
       repo_analysis?: RepoAnalysis | null;
+      github_context?: GitHubContextSummary | null;
+      academic_context?: AcademicContextSummary | null;
       approval?: ApprovalRecord | null;
       [key: string]: unknown;
     };
@@ -169,6 +266,8 @@ export type TaskHistoryDetail = TaskHistorySummary & {
   metadata: {
     orchestration?: OrchestrationTrace;
     repo_analysis?: RepoAnalysis | null;
+    github_context?: GitHubContextSummary | null;
+    academic_context?: AcademicContextSummary | null;
     approval?: ApprovalRecord | null;
     [key: string]: unknown;
   };

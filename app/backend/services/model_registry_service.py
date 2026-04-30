@@ -1,6 +1,7 @@
 """Registry access for providers and models."""
 
 from functools import lru_cache
+import os
 from typing import cast
 
 from app.backend.schemas.model import (
@@ -9,9 +10,14 @@ from app.backend.schemas.model import (
     ModelOverrideEntry,
     ModelSummary,
     ProviderDefinition,
+    ProviderOverrideEntry,
     ProviderSummary,
 )
-from app.backend.services.model_loader import load_model_catalog, load_model_overrides
+from app.backend.services.model_loader import (
+    load_model_catalog,
+    load_model_overrides,
+    load_provider_overrides,
+)
 
 
 class ModelRegistryError(ValueError):
@@ -40,12 +46,7 @@ class ModelRegistryService:
     def list_providers(self) -> list[ProviderSummary]:
         """Return lightweight provider entries."""
         return [
-            ProviderSummary(
-                provider_id=provider.provider_id,
-                display_name=provider.display_name,
-                description=provider.description,
-                enabled=provider.enabled,
-            )
+            self._to_provider_summary(provider)
             for provider in self._providers.values()
         ]
 
@@ -70,6 +71,13 @@ class ModelRegistryService:
         """Look up a provider by id."""
         return self._providers.get(provider_id)
 
+    def get_provider_summary(self, provider_id: str) -> ProviderSummary | None:
+        """Look up a provider by id and return its editable API-facing view."""
+        provider = self.get_provider(provider_id)
+        if provider is None:
+            return None
+        return self._to_provider_summary(provider)
+
     def get_model(self, model_id: str) -> ModelDefinition | None:
         """Look up a model by id."""
         return self._models.get(model_id)
@@ -88,22 +96,69 @@ class ModelRegistryService:
     def _build_catalog(self) -> ModelCatalog:
         """Load the seed catalog and layer mutable local overrides on top."""
         catalog = load_model_catalog()
-        overrides = load_model_overrides()
-        if not overrides.models:
+        model_overrides = load_model_overrides()
+        provider_overrides = load_provider_overrides()
+
+        merged_providers: list[ProviderDefinition] = []
+        for provider in catalog.providers:
+            override = provider_overrides.providers.get(provider.provider_id)
+            if override is None:
+                merged_providers.append(provider)
+                continue
+            merged_providers.append(self._apply_provider_override(provider, override))
+
+        if not model_overrides.models and not provider_overrides.providers:
             return catalog
 
         merged_models: list[ModelDefinition] = []
         for model in catalog.models:
-            override = overrides.models.get(model.model_id)
+            override = model_overrides.models.get(model.model_id)
             if override is None:
                 merged_models.append(model)
                 continue
             merged_models.append(self._apply_override(model, override))
         return ModelCatalog(
-            providers=catalog.providers,
+            providers=merged_providers,
             models=merged_models,
             routing=catalog.routing,
         )
+
+    @classmethod
+    def _to_provider_summary(cls, provider: ProviderDefinition) -> ProviderSummary:
+        """Convert a provider definition into the API-facing editable view."""
+        api_key_env = cls._provider_api_key_env(provider)
+        return ProviderSummary(
+            provider_id=provider.provider_id,
+            display_name=provider.display_name,
+            description=provider.description,
+            enabled=provider.enabled,
+            api_base_url=provider.api_base_url,
+            api_key_env=api_key_env,
+            api_key_configured=bool(api_key_env and os.getenv(api_key_env)),
+            protocol=cls._provider_protocol(provider),
+            anthropic_api_base_url=cls._provider_anthropic_api_base_url(provider),
+        )
+
+    @staticmethod
+    def _provider_api_key_env(provider: ProviderDefinition) -> str:
+        """Return the explicit or conventional environment variable for a provider."""
+        configured = provider.metadata.get("api_key_env")
+        if configured:
+            return str(configured)
+        return f"{provider.provider_id.upper().replace('-', '_')}_API_KEY"
+
+    @staticmethod
+    def _provider_protocol(provider: ProviderDefinition) -> str:
+        """Return the transport protocol for a provider."""
+        return str(provider.metadata.get("protocol", "openai")).lower()
+
+    @staticmethod
+    def _provider_anthropic_api_base_url(provider: ProviderDefinition) -> str | None:
+        """Return the Anthropic-compatible base URL when configured."""
+        configured = provider.metadata.get("anthropic_api_base_url")
+        if configured:
+            return str(configured)
+        return None
 
     @staticmethod
     def _apply_override(
@@ -117,6 +172,30 @@ class ModelRegistryService:
         if override.enabled is not None:
             update_payload["enabled"] = override.enabled
         return cast(ModelDefinition, model.model_copy(update=update_payload))
+
+    @staticmethod
+    def _apply_provider_override(
+        provider: ProviderDefinition,
+        override: ProviderOverrideEntry,
+    ) -> ProviderDefinition:
+        """Return a provider definition patched with local editable fields."""
+        update_payload: dict[str, object] = {}
+        metadata = dict(provider.metadata)
+
+        if override.enabled is not None:
+            update_payload["enabled"] = override.enabled
+        if override.api_base_url is not None:
+            update_payload["api_base_url"] = override.api_base_url
+        if override.api_key_env is not None:
+            metadata["api_key_env"] = override.api_key_env
+        if override.protocol is not None:
+            metadata["protocol"] = override.protocol
+        if override.anthropic_api_base_url is not None:
+            metadata["anthropic_api_base_url"] = override.anthropic_api_base_url
+        if metadata != provider.metadata:
+            update_payload["metadata"] = metadata
+
+        return cast(ProviderDefinition, provider.model_copy(update=update_payload))
 
 
 @lru_cache(maxsize=1)

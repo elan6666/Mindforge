@@ -9,7 +9,9 @@ from uuid import uuid4
 from app.backend.core.config import Settings, get_settings
 from app.backend.core.logging import get_logger
 from app.backend.integration.openhands_adapter import OpenHandsAdapter
+from app.backend.schemas.academic_context import AcademicContextSummary
 from app.backend.schemas.approval import ApprovalRecord
+from app.backend.schemas.github_context import GitHubContextSummary
 from app.backend.schemas.model import ModelSelection
 from app.backend.schemas.preset import PresetDefinition
 from app.backend.schemas.repository import RepoAnalysisResult
@@ -20,12 +22,21 @@ from app.backend.services.approval_service import (
     ApprovalService,
     get_approval_service,
 )
+from app.backend.services.academic_context_service import (
+    AcademicContextService,
+    get_academic_context_service,
+)
 from app.backend.services.coordinator_selection_service import (
     CoordinatorSelectionError,
     CoordinatorSelectionService,
     get_coordinator_selection_service,
 )
 from app.backend.services.history_service import HistoryService, get_history_service
+from app.backend.services.github_context_service import (
+    GitHubContextError,
+    GitHubContextService,
+    get_github_context_service,
+)
 from app.backend.services.model_routing_service import (
     ModelRoutingError,
     ModelRoutingService,
@@ -53,6 +64,8 @@ class PreparedTaskExecution:
     rule_template_selection: RuleTemplateSelection | None
     effective_role_model_overrides: dict[str, str]
     repo_analysis: RepoAnalysisResult | None
+    github_context: GitHubContextSummary | None
+    academic_context: AcademicContextSummary | None
 
 
 class TaskService:
@@ -66,6 +79,8 @@ class TaskService:
         coordinator_selector: CoordinatorSelectionService,
         approval_service: ApprovalService,
         history_service: HistoryService,
+        github_context_service: GitHubContextService,
+        academic_context_service: AcademicContextService,
     ) -> None:
         self.settings = settings
         self.preset_service = preset_service
@@ -73,6 +88,8 @@ class TaskService:
         self.coordinator_selector = coordinator_selector
         self.approval_service = approval_service
         self.history_service = history_service
+        self.github_context_service = github_context_service
+        self.academic_context_service = academic_context_service
         self.logger = get_logger("app.task_service")
         self.adapter = OpenHandsAdapter(settings)
         self.orchestrator = SerialOrchestrationService(self.adapter, model_router)
@@ -264,6 +281,28 @@ class TaskService:
             execution_payload,
             preset.requires_repo_analysis,
         )
+        try:
+            github_context = self.github_context_service.resolve_context(
+                github_repo=payload.github_repo,
+                github_issue_number=payload.github_issue_number,
+                github_pr_number=payload.github_pr_number,
+            )
+        except GitHubContextError as exc:
+            return TaskResponse(
+                status="failed",
+                message="GitHub context resolution failed.",
+                data=TaskResponseData(
+                    output="",
+                    provider="github-context",
+                    metadata={
+                        "github_repo": payload.github_repo,
+                        "github_issue_number": payload.github_issue_number,
+                        "github_pr_number": payload.github_pr_number,
+                    },
+                ),
+                error_message=str(exc),
+            )
+        academic_context = self.academic_context_service.resolve_context(payload)
         return PreparedTaskExecution(
             requested_payload=payload,
             execution_payload=execution_payload,
@@ -273,6 +312,8 @@ class TaskService:
             rule_template_selection=rule_template_selection,
             effective_role_model_overrides=effective_role_model_overrides,
             repo_analysis=repo_analysis,
+            github_context=github_context,
+            academic_context=academic_context,
         )
 
     def _execute_prepared(
@@ -293,12 +334,14 @@ class TaskService:
                 "openhands_mode": self.settings.openhands_mode,
             },
         )
-        if prepared.preset.preset_mode == "code-engineering":
+        if prepared.preset.preset_mode in {"code-engineering", "paper-revision"}:
             try:
-                response = self.orchestrator.execute_code_engineering(
+                response = self.orchestrator.execute_preset(
                     prepared.execution_payload,
                     prepared.preset,
                     repo_analysis=prepared.repo_analysis,
+                    github_context=prepared.github_context,
+                    academic_context=prepared.academic_context,
                 )
             except ModelRoutingError as exc:
                 return TaskResponse(
@@ -354,6 +397,20 @@ class TaskService:
                     prepared.execution_payload.prompt,
                     prepared.repo_analysis,
                 )
+        if prepared.github_context is not None:
+            normalized_request["metadata"]["github_context"] = prepared.github_context.model_dump()
+            normalized_request["prompt"] = self._augment_prompt_with_github_context(
+                normalized_request["prompt"],
+                prepared.github_context,
+            )
+        if prepared.academic_context is not None:
+            normalized_request["metadata"]["academic_context"] = (
+                prepared.academic_context.model_dump()
+            )
+            normalized_request["prompt"] = self._augment_prompt_with_academic_context(
+                normalized_request["prompt"],
+                prepared.academic_context,
+            )
         return normalized_request
 
     def _build_common_metadata(
@@ -377,6 +434,12 @@ class TaskService:
             },
             "requested_rule_template_id": prepared.requested_payload.rule_template_id,
             "requested_role_model_overrides": prepared.requested_payload.role_model_overrides,
+            "github_repo": prepared.requested_payload.github_repo,
+            "github_issue_number": prepared.requested_payload.github_issue_number,
+            "github_pr_number": prepared.requested_payload.github_pr_number,
+            "journal_name": prepared.requested_payload.journal_name,
+            "journal_url": prepared.requested_payload.journal_url,
+            "reference_paper_urls": prepared.requested_payload.reference_paper_urls,
             "task_model_selection": prepared.task_model_selection.model_dump(),
             "rule_template_selection": (
                 prepared.rule_template_selection.model_dump()
@@ -387,6 +450,16 @@ class TaskService:
             "repo_analysis": (
                 prepared.repo_analysis.model_dump()
                 if prepared.repo_analysis is not None
+                else None
+            ),
+            "github_context": (
+                prepared.github_context.model_dump()
+                if prepared.github_context is not None
+                else None
+            ),
+            "academic_context": (
+                prepared.academic_context.model_dump()
+                if prepared.academic_context is not None
                 else None
             ),
         }
@@ -447,6 +520,69 @@ class TaskService:
             f"{repo_analysis.repo_summary.summary_text}"
         )
 
+    @staticmethod
+    def _augment_prompt_with_github_context(
+        prompt: str,
+        github_context: GitHubContextSummary,
+    ) -> str:
+        """Append GitHub summary text for single-pass executions."""
+        lines = [prompt, "", "GitHub context:"]
+        if github_context.repository is not None:
+            repo = github_context.repository
+            lines.append(
+                f"- repository: {repo.full_name} | branch={repo.default_branch} | "
+                f"language={repo.primary_language or 'unknown'} | stars={repo.stargazers_count}"
+            )
+            if repo.description:
+                lines.append(f"- repository description: {repo.description}")
+        if github_context.issue is not None:
+            issue = github_context.issue
+            lines.append(
+                f"- issue: #{issue.number} {issue.title} [{issue.state}] by {issue.author or 'unknown'}"
+            )
+            if issue.body_excerpt:
+                lines.append(f"- issue excerpt: {issue.body_excerpt}")
+        if github_context.pull_request is not None:
+            pull = github_context.pull_request
+            lines.append(
+                f"- pull request: #{pull.number} {pull.title} [{pull.state}] "
+                f"head={pull.head_ref or '-'} base={pull.base_ref or '-'}"
+            )
+            if pull.body_excerpt:
+                lines.append(f"- pull request excerpt: {pull.body_excerpt}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _augment_prompt_with_academic_context(
+        prompt: str,
+        academic_context: AcademicContextSummary,
+    ) -> str:
+        """Append academic paper context for single-pass executions."""
+        lines = [prompt, "", "Academic context:"]
+        if academic_context.journal is not None:
+            journal = academic_context.journal
+            lines.append(
+                f"- journal: {journal.journal_name or 'unknown'} | "
+                f"url={journal.journal_url or '-'} | status={journal.status}"
+            )
+            if journal.title:
+                lines.append(f"- journal guideline title: {journal.title}")
+            if journal.excerpt:
+                lines.append(f"- journal guideline excerpt: {journal.excerpt}")
+        for index, reference in enumerate(
+            academic_context.reference_papers,
+            start=1,
+        ):
+            lines.append(
+                f"- reference paper {index}: {reference.title or reference.url} "
+                f"| status={reference.status}"
+            )
+            if reference.excerpt:
+                lines.append(f"- reference paper {index} excerpt: {reference.excerpt}")
+        for warning in academic_context.warnings:
+            lines.append(f"- warning: {warning}")
+        return "\n".join(lines)
+
 
 @lru_cache(maxsize=1)
 def get_task_service() -> TaskService:
@@ -458,6 +594,8 @@ def get_task_service() -> TaskService:
         get_coordinator_selection_service(),
         get_approval_service(),
         get_history_service(),
+        get_github_context_service(),
+        get_academic_context_service(),
     )
 
 

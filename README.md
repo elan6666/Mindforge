@@ -1,117 +1,80 @@
 # Mindforge
 
-这是一个参考 `OpenHands` 架构并预留其运行时适配边界的多 Agent 助手项目。当前阶段并不是直接嵌入 `OpenHands` 内核运行，而是在其上先搭建 `Mindforge` 自己的任务入口、preset 中心、编排层和后续 Web App 规划。当前仓库已经完成：
+Mindforge 是一个基于 OpenHands 架构思路二次开发的多 Agent 助手项目。当前仓库不是直接嵌入完整 OpenHands 运行时，而是先保留清晰的 `OpenHandsAdapter` 边界，在其上实现 Mindforge 自己的任务入口、Preset、模型路由、规则模板、审批、历史、GitHub 只读上下文和论文修改模式。
 
-- Phase 1：`FastAPI` 入口、统一任务接口、`OpenHandsAdapter` 适配边界
-- Phase 2：文件型 preset 模板中心、`/api/presets` 模式发现、preset-aware 的 `/api/tasks`
-- Phase 3：`code-engineering` 模式下的角色实例化与串行调度
-- Phase 4：本地仓库扫描、`Repo Summary` 生成与上下文注入
-- Phase 5：provider/model registry、`/api/providers`、`/api/models`、执行时模型路由与 override
-- Phase 6：Web App 工作台壳、会话历史、任务输入区、结果/轨迹面板、前后端联调
-- Phase 7：模型中心、规则模板中心、协调模型选择与动态角色模型分配
+## 当前能力
 
-当前系统既保留“代码工程模式”主线，也加入了“论文修改模式”的模板占位，后续会在编排阶段补齐多 Agent 协作逻辑。
+- Phase 1: FastAPI 后端、统一任务接口、OpenHands adapter 边界。
+- Phase 2: YAML Preset 中心和 `/api/presets`。
+- Phase 3: `code-engineering` 多角色串行编排。
+- Phase 4: 本地仓库扫描和 `repo_analysis` 上下文注入。
+- Phase 5: provider/model registry、模型路由、显式模型 override。
+- Phase 6: React + Vite Web App 工作台。
+- Phase 7: 前端模型控制中心、规则模板、角色到模型分配。
+- Phase 8: 审批、SQLite 历史、阶段日志。
+- Phase 9: GitHub 仓库、Issue、PR 只读上下文。
+- Phase 10: 学术论文修改模式、期刊规范/参考论文上下文、审稿循环、Ark/Doubao OpenAI-compatible 测试通道。
+- Phase 11: Provider/API 管理中心、非敏感 provider overrides、API key env 状态、连接测试。
 
-## 当前与 OpenHands 的关系
+## 标杆约束
 
-当前项目与 `OpenHands` 的关系更准确地说是：
+- Codex / Claude Code 是工程执行标准：要能读代码库、改多文件、跑测试、解释结果，并交付可审查变更。
+- OpenHands 是架构参考：runtime 边界、agent/action/observation、skills、repo instructions。
+- Mindforge 是产品编排层：Preset、多 Agent、多模型、多 provider routing、规则模板、审批历史、论文/研发双模式。
 
-- 已参考其产品和架构方向，而不是从零定义整套 agent 产品形态
-- 已预留独立的 `OpenHandsAdapter` 作为运行时适配边界
-- 当前默认仍以 `mock` 演示链路为主，`http` 模式只是为后续真实上游集成预留接口
-- `preset`、多阶段编排、仓库分析、模型中心和规则模板属于 `Mindforge` 自己的产品层
+## 和 OpenHands 的关系
 
-如果后续接入真实 `OpenHands` 服务，`Mindforge` 会继续保留自己的产品层，同时把更底层的执行能力逐步切到真实运行时。
+Mindforge 目前主要学习和复用 OpenHands 的架构方向，而不是把整个 OpenHands runtime 直接搬进来。
 
-## 当前内置 Presets
+- `app/backend/integration/openhands_adapter.py` 是运行时适配边界。
+- `mock` 模式用于本地稳定演示。
+- `http` 模式保留给 OpenHands-compatible HTTP 服务。
+- `model-api` 模式用于 OpenAI-compatible 模型接口测试。
+- Preset、规则模板、模型控制、论文修改流程属于 Mindforge 产品层。
 
-- `default`
-- `code-engineering`
-- `code-review`
-- `doc-organize`
-- `paper-revision`
+后续如果接入真实 OpenHands 服务，Mindforge 应继续保留自己的产品层，把更底层的执行能力逐步切到真实运行时，而不是推倒重写。
 
-## `paper-revision` 模式说明
+## 论文修改流程
 
-`paper-revision` 用于论文修改场景，当前阶段只完成模板定义和发现，不执行真实多 Agent 编排。后续将围绕以下角色实现：
-
-- `standards-editor`
-  负责提取论文标准、结构要求和文风要点；如果是期刊论文，还会补充期刊官网投稿规范和同类论文风格摘要。
-- `reviser`
-  根据标准摘要、原文问题和审稿意见执行正文修改。
-- `reviewer`
-  以审稿人视角提出问题、风险点和修改建议，并驱动多轮修订。
-
-## `code-engineering` 当前行为
-
-从 Phase 3 开始，`code-engineering` 不再是单次 adapter 调用，而是固定走 4 个串行阶段：
-
-1. `project-manager`
-2. `backend`
-3. `frontend`
-4. `reviewer`
-
-系统会在响应中返回：
-
-- 最终汇总输出
-- 每个阶段的原始输出
-- 阶段摘要
-- 当前执行策略、完成阶段数和失败阶段信息
-
-如果传入 `repo_path`，系统还会在任务开始前做一次轻量仓库扫描，并把 `repo_analysis` 放入响应 metadata。
-
-这条多阶段链路当前是 `Mindforge` 侧的 MVP 编排实现，目的是先验证角色分工和结果组织方式。后续阶段会尽量向 `OpenHands` 更成熟的 agent/state/action 抽象靠拢，而不是长期维护完全独立的轻量协议。
-
-## `repo_analysis` 当前行为
-
-Phase 4 增加了本地仓库分析，当前规则是轻量和可预测的：
-
-- 扫描顶层目录
-- 识别关键文件，如 `README.md`、`pyproject.toml`、`package.json`、`Dockerfile`
-- 识别可能的入口文件，如 `main.py`、`app.py`、`index.tsx`
-- 推断技术栈并生成简短 `Repo Summary`
-
-降级策略如下：
-
-- 没传 `repo_path`：`status=skipped`
-- 路径不存在或不可解析：`status=failed`
-- 扫描成功：`status=analyzed`
-
-无论哪种情况，主任务链都不会因为仓库分析失败而直接中断。
-
-当前这套仓库分析是刻意保持轻量的产品层能力。后续如果引入 `skills`、仓库私有 instructions 或更完整的 workspace context，会在这套基础上继续合并，而不是推倒重做。
-
-## 项目结构
-
-```text
-app/backend/
-├── api/          # HTTP routes
-├── core/         # settings and logging
-├── integration/  # OpenHands adapter boundary
-├── schemas/      # request and response models
-├── services/     # task orchestration and preset loading
-└── storage/      # placeholder for future persistence
-
-app/presets/      # YAML preset templates
-frontend/         # React + Vite Web App workspace shell
-scripts/          # local demo helpers
+```mermaid
+flowchart TD
+    A["用户提交 paper-revision 任务"] --> B["解析 preset 和规则模板"]
+    B --> C["收集期刊规范和参考论文摘要"]
+    C --> D["Standards Editor: 总结投稿标准和文风要求"]
+    D --> E["Reviser: 生成修改稿"]
+    E --> F["Style Reviewer: 审查文风和表达"]
+    F --> G["Content Reviewer: 审查内容、逻辑和证据"]
+    G --> H["Reviser: 根据审稿意见迭代"]
+    H --> I["Final Reviewer: 终审和剩余风险检查"]
+    I --> J["保存输出、阶段轨迹和 metadata"]
 ```
+
+`paper-revision` 支持这些输入：
+
+- `journal_name`
+- `journal_url`
+- `reference_paper_urls`
+- `rule_template_id`
+- `model_override`
+- `role_model_overrides`
+
+默认论文模式现在使用 `doubao-seed-2.0-lite`，并通过 `volces-ark` provider 走 OpenAI-compatible endpoint。
 
 ## 本地启动
 
-安装依赖：
+安装后端依赖：
 
 ```powershell
 python -m pip install -e .
 ```
 
-启动本地演示服务：
+启动后端：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run_local_demo.ps1
 ```
 
-启动前端工作台：
+启动前端：
 
 ```powershell
 cd .\frontend
@@ -119,55 +82,40 @@ npm install
 npm run dev
 ```
 
-前端默认地址：
+默认地址：
 
 ```text
-http://127.0.0.1:5173
+Backend: http://127.0.0.1:8000
+Frontend: http://127.0.0.1:5173
 ```
 
-检查健康接口：
+## Ark/Doubao 测试
+
+不要把 API key 写入仓库。只在当前 shell 设置环境变量：
 
 ```powershell
-Invoke-RestMethod -Method Get http://127.0.0.1:8000/api/health
+$env:ARK_API_KEY = "<your-ark-api-key>"
+$env:OPENHANDS_MODE = "model-api"
 ```
 
-查看可用 preset：
+模型配置已经在 `app/model_registry/catalog.yaml` 中注册：
 
-```powershell
-Invoke-RestMethod -Method Get http://127.0.0.1:8000/api/presets
+```text
+provider: volces-ark
+model: doubao-seed-2.0-lite
+OpenAI-compatible base URL: https://ark.cn-beijing.volces.com/api/coding/v3
+Anthropic-compatible base URL: https://ark.cn-beijing.volces.com/api/coding
 ```
 
-查看可用 provider：
+## 示例请求
 
-```powershell
-Invoke-RestMethod -Method Get http://127.0.0.1:8000/api/providers
-```
-
-查看可用 model：
-
-```powershell
-Invoke-RestMethod -Method Get http://127.0.0.1:8000/api/models
-```
-
-查看可编辑模型控制状态：
-
-```powershell
-Invoke-RestMethod -Method Get http://127.0.0.1:8000/api/control/models
-```
-
-查看规则模板：
-
-```powershell
-Invoke-RestMethod -Method Get http://127.0.0.1:8000/api/control/rule-templates
-```
-
-提交一个代码审查任务：
+提交代码工程任务：
 
 ```powershell
 $body = @{
-  prompt = "Review the current backend structure."
-  preset_mode = "code-review"
-  repo_path = "E:\\CODE\\Mindforge"
+  prompt = "Plan backend work for adding login."
+  preset_mode = "code-engineering"
+  repo_path = "."
 } | ConvertTo-Json
 
 Invoke-RestMethod `
@@ -177,12 +125,16 @@ Invoke-RestMethod `
   -Body $body
 ```
 
-提交一个论文修改任务：
+提交论文修改任务：
 
 ```powershell
 $body = @{
-  prompt = "Revise this journal paper abstract to match a formal academic tone."
+  prompt = "Revise this abstract for a formal journal submission."
   preset_mode = "paper-revision"
+  task_type = "writing"
+  journal_name = "Example Journal"
+  journal_url = "https://journal.example/guidelines"
+  reference_paper_urls = @("https://paper.example/reference")
 } | ConvertTo-Json
 
 Invoke-RestMethod `
@@ -192,86 +144,34 @@ Invoke-RestMethod `
   -Body $body
 ```
 
-## OpenHands Adapter Modes
+## 常用 API
 
-通过环境变量 `OPENHANDS_MODE` 控制适配器模式：
+- `GET /api/health`
+- `POST /api/tasks`
+- `GET /api/presets`
+- `GET /api/providers`
+- `GET /api/models`
+- `GET /api/control/models`
+- `GET /api/control/providers`
+- `PUT /api/control/providers/{provider_id}`
+- `POST /api/control/providers/{provider_id}/test`
+- `GET /api/control/rule-templates`
+- `GET /api/history/tasks`
+- `GET /api/history/tasks/{task_id}`
+- `GET /api/approvals/pending`
+- `POST /api/approvals/{task_id}/approve`
+- `POST /api/approvals/{task_id}/reject`
+- `GET /api/github/repositories/{owner}/{repo}`
+- `GET /api/github/repositories/{owner}/{repo}/issues/{issue_number}`
+- `GET /api/github/repositories/{owner}/{repo}/pulls/{pr_number}`
 
-- `mock`：默认模式，用于本地演示
-- `http`：当 `OPENHANDS_BASE_URL` 已配置时，转发到上游 HTTP 任务接口；后续会逐步向真实 `OpenHands` 服务契约收敛
-- `disabled`：禁用适配层，接口返回明确错误
+## 测试
 
-## Phase 5 模型路由
-
-当前后端已经提供文件型 model registry，并支持：
-
-- provider 查询：`GET /api/providers`
-- model 查询：`GET /api/models`
-- 单次任务默认模型选择
-- `code-engineering` 多阶段 role 级模型选择
-- 显式 override：
-  - `model_override`
-  - `role_model_overrides`
-
-当前默认优先级顺序为：
-
-1. 显式 override
-2. role 默认
-3. `task_type` 默认
-4. `preset_mode` 默认
-5. global 默认
-6. priority fallback
-
-## Phase 7 模型中心与规则模板
-
-当前系统已经支持：
-
-- 前端模型中心：调整模型优先级 `high / medium / low / disabled`
-- 前端规则模板中心：按 `preset_mode`、职责和模型创建结构化模板
-- 后端协调模型选择：根据显式模板或 prompt/preset/task type 命中模板
-- 执行元数据回写：
-  - `rule_template_selection`
-  - `effective_role_model_overrides`
-
-当前模板和模型可编辑状态使用本地配置文件持久化：
-
-- `app/model_control/model_overrides.json`
-- `app/model_control/rule_templates.json`
-
-## Preset 行为
-
-- 当 `preset_mode` 为空或未提供时，系统回退到 `default` 模板，并在响应 metadata 中标明 `used_default_preset = true`
-- 当 `preset_mode` 明确给出但不存在时，接口返回 `400`，同时附带当前可用 preset 列表
-- 当前只有 `code-engineering` 已接入真实串行多阶段编排；其余 preset 仍是单次执行链
-
-## 后续重点
-
-- Phase 8-9：审批历史、GitHub 只读集成
-- Phase 10：论文修改模式的标准分析、改写与审稿循环
-## Phase 8 审批与历史
-
-当前系统已经支持：
-
-- 高风险任务进入 `pending_approval`，并在当前工作台内批准或拒绝
-- `SQLite` 持久化 `task_run / stage_run / approval`
-- 审批接口：
-  - `GET /api/approvals/pending`
-  - `POST /api/approvals/{task_id}/approve`
-  - `POST /api/approvals/{task_id}/reject`
-- 历史接口：
-  - `GET /api/history/tasks`
-  - `GET /api/history/tasks/{task_id}`
-- 前端工作台历史列表、状态筛选、详情面板和审批标签页
-
-当前审批触发规则保持轻量：
-
-- 只在请求 metadata 中出现高风险信号时触发，例如：
-  - `requires_approval = true`
-  - `approval_actions`
-  - `high_risk_actions`
-  - `execution_mode = write/shell/batch-write`
-- 普通只读分析和默认 mock 链路不会自动拦截
-
-后续重点：
-
-- Phase 9：GitHub 只读集成与结果展示增强
-- Phase 10：论文修改模式的标准分析、改写与审稿循环
+```powershell
+python -m pytest -q
+cd .\frontend
+npm run test
+npm run build
+cd ..
+python -m compileall app
+```

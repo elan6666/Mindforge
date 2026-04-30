@@ -2,11 +2,14 @@
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import os
 from typing import Any
 
 import requests
 
 from app.backend.core.config import Settings
+
+OPENAI_COMPATIBLE_PROTOCOLS = {"openai", "openai-chat", "openai-compatible"}
 
 
 @dataclass(slots=True)
@@ -44,6 +47,8 @@ class OpenHandsAdapter:
                 metadata={"mode": mode},
                 error_message="Adapter disabled",
             )
+        if mode in {"model-api", "model_api"}:
+            return self._run_model_api(payload)
         if mode == "http" and self.settings.openhands_base_url:
             return self._run_http(payload)
         return self._run_mock(payload)
@@ -75,6 +80,136 @@ class OpenHandsAdapter:
                 output="OpenHands HTTP adapter request failed.",
                 provider="openhands-http",
                 metadata={"mode": "http"},
+                error_message=str(exc),
+            )
+
+    def _run_model_api(self, payload: dict[str, Any]) -> AdapterResult:
+        """Execute a task through an OpenAI-compatible model provider endpoint."""
+        from app.backend.services.model_registry_service import get_model_registry_service
+
+        provider_id = str(payload.get("provider_id") or "")
+        model = str(payload.get("model") or "")
+        prompt = str(payload.get("prompt") or "").strip()
+        if not provider_id or not model:
+            return AdapterResult(
+                status="failed",
+                output="Model API adapter requires a provider_id and model.",
+                provider="model-api",
+                metadata={"mode": "model-api", "provider_id": provider_id, "model": model},
+                error_message="Missing provider_id or model.",
+            )
+
+        provider = get_model_registry_service().get_provider(provider_id)
+        if provider is None or not provider.enabled:
+            return AdapterResult(
+                status="failed",
+                output="Model API provider is not available.",
+                provider="model-api",
+                metadata={"mode": "model-api", "provider_id": provider_id, "model": model},
+                error_message=f"Provider '{provider_id}' is not registered or enabled.",
+            )
+        if not provider.api_base_url:
+            return AdapterResult(
+                status="failed",
+                output="Model API provider has no base URL configured.",
+                provider=f"model-api:{provider_id}",
+                metadata={"mode": "model-api", "provider_id": provider_id, "model": model},
+                error_message=f"Provider '{provider_id}' has no api_base_url.",
+            )
+
+        protocol = str(provider.metadata.get("protocol", "openai")).lower()
+        if protocol not in OPENAI_COMPATIBLE_PROTOCOLS:
+            return AdapterResult(
+                status="failed",
+                output="Model API adapter currently supports OpenAI-compatible providers only.",
+                provider=f"model-api:{provider_id}",
+                metadata={
+                    "mode": "model-api",
+                    "provider_id": provider_id,
+                    "model": model,
+                    "protocol": protocol,
+                },
+                error_message=f"Unsupported provider protocol '{protocol}'.",
+            )
+
+        api_key_env = str(
+            provider.metadata.get("api_key_env")
+            or f"{provider_id.upper().replace('-', '_')}_API_KEY"
+        )
+        api_key = os.getenv(api_key_env)
+        if not api_key:
+            return AdapterResult(
+                status="failed",
+                output="Model API key is not configured.",
+                provider=f"model-api:{provider_id}",
+                metadata={
+                    "mode": "model-api",
+                    "provider_id": provider_id,
+                    "model": model,
+                    "api_key_env": api_key_env,
+                },
+                error_message=f"Environment variable '{api_key_env}' is required.",
+            )
+
+        endpoint_path = str(
+            provider.metadata.get("chat_completions_path", "/chat/completions")
+        )
+        endpoint = provider.api_base_url.rstrip("/") + endpoint_path
+        try:
+            response = requests.post(
+                endpoint,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a Mindforge execution agent. "
+                                "Return concise, structured, task-specific output."
+                            ),
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": self.settings.model_api_max_tokens,
+                },
+                timeout=self.settings.model_api_timeout_seconds,
+            )
+            response.raise_for_status()
+            body = response.json()
+            output = (
+                body.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+            )
+            return AdapterResult(
+                status="completed",
+                output=output or "",
+                provider=f"model-api:{provider_id}",
+                metadata={
+                    "mode": "model-api",
+                    "provider_id": provider_id,
+                    "model": model,
+                    "endpoint": endpoint,
+                    "upstream_status": response.status_code,
+                    "usage": body.get("usage"),
+                },
+            )
+        except (KeyError, IndexError, ValueError, requests.RequestException) as exc:
+            return AdapterResult(
+                status="failed",
+                output="Model API adapter request failed.",
+                provider=f"model-api:{provider_id}",
+                metadata={
+                    "mode": "model-api",
+                    "provider_id": provider_id,
+                    "model": model,
+                    "endpoint": endpoint,
+                },
                 error_message=str(exc),
             )
 

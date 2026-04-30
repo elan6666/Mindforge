@@ -13,7 +13,9 @@ import {
   getApiBaseUrl,
   rejectTask,
   submitTask,
+  testProviderConnection,
   updateModelControl,
+  updateProviderControl,
   updateRuleTemplate,
 } from "./lib/api";
 import type {
@@ -28,9 +30,17 @@ import type {
   TaskResult,
 } from "./types";
 
-type PanelTab = "output" | "stages" | "repo" | "approval" | "metadata";
+type PanelTab =
+  | "output"
+  | "stages"
+  | "repo"
+  | "github"
+  | "academic"
+  | "approval"
+  | "metadata";
 type AppView = "workspace" | "models" | "rules";
 type HistoryFilter = "all" | "completed" | "pending_approval" | "failed" | "rejected";
+type ProviderTestMessage = { status: "success" | "error"; text: string };
 
 const NAV_ITEMS: Array<{
   id: string;
@@ -93,6 +103,18 @@ function formatDate(value?: string | null): string {
   return new Date(value).toLocaleString();
 }
 
+function parseUrlList(value: string): string[] {
+  return value
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function optionalText(value?: string | null): string | null {
+  const trimmed = value?.trim() || "";
+  return trimmed ? trimmed : null;
+}
+
 export function App() {
   const [view, setView] = useState<AppView>("workspace");
   const [activeNavId, setActiveNavId] = useState("new-task");
@@ -113,6 +135,12 @@ export function App() {
   const [taskType, setTaskType] = useState("");
   const [modelOverride, setModelOverride] = useState("");
   const [ruleTemplateId, setRuleTemplateId] = useState("");
+  const [githubRepo, setGitHubRepo] = useState("");
+  const [githubIssueNumber, setGitHubIssueNumber] = useState("");
+  const [githubPrNumber, setGitHubPrNumber] = useState("");
+  const [journalName, setJournalName] = useState("");
+  const [journalUrl, setJournalUrl] = useState("");
+  const [referencePaperUrls, setReferencePaperUrls] = useState("");
   const [requiresApproval, setRequiresApproval] = useState(false);
   const [approvalActions, setApprovalActions] = useState("write files");
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
@@ -122,6 +150,10 @@ export function App() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [providerTestMessages, setProviderTestMessages] = useState<
+    Record<string, ProviderTestMessage>
+  >({});
+  const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
 
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [templateDraft, setTemplateDraft] = useState<RuleTemplateSummary>(() =>
@@ -183,9 +215,15 @@ export function App() {
   }
 
   async function loadBootstrap() {
+    let providerLoadError: string | null = null;
+    const providerDataPromise = fetchProviders().catch((error) => {
+      providerLoadError =
+        error instanceof Error ? error.message : "Failed to load provider controls.";
+      return [] as ProviderSummary[];
+    });
     const [presetData, providerData, modelData, templateData] = await Promise.all([
       fetchPresets(),
-      fetchProviders(),
+      providerDataPromise,
       fetchEditableModels(),
       fetchRuleTemplates(),
     ]);
@@ -193,6 +231,7 @@ export function App() {
     setProviders(providerData);
     setModels(modelData);
     setRuleTemplates(templateData);
+    setLoadError(providerLoadError);
     if (!selectedTemplateId && templateData.length > 0) {
       setSelectedTemplateId(templateData[0].template_id);
       setEditingTemplateId(templateData[0].template_id);
@@ -279,6 +318,12 @@ export function App() {
         task_type: taskType || undefined,
         model_override: modelOverride || undefined,
         rule_template_id: ruleTemplateId || undefined,
+        github_repo: githubRepo || undefined,
+        github_issue_number: githubIssueNumber ? Number(githubIssueNumber) : undefined,
+        github_pr_number: githubPrNumber ? Number(githubPrNumber) : undefined,
+        journal_name: journalName || undefined,
+        journal_url: journalUrl || undefined,
+        reference_paper_urls: parseUrlList(referencePaperUrls),
         metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
       });
       const taskId = result.data.metadata.task_id;
@@ -321,6 +366,66 @@ export function App() {
     } catch (error) {
       setSettingsMessage(null);
       setSettingsError(error instanceof Error ? error.message : "Model update failed.");
+    }
+  }
+
+  function updateProviderDraft(providerId: string, updates: Partial<ProviderSummary>) {
+    setProviders((previous) =>
+      previous.map((provider) =>
+        provider.provider_id === providerId ? { ...provider, ...updates } : provider,
+      ),
+    );
+  }
+
+  async function handleProviderSave(provider: ProviderSummary) {
+    try {
+      const updated = await updateProviderControl(provider.provider_id, {
+        enabled: provider.enabled,
+        api_base_url: optionalText(provider.api_base_url),
+        protocol: optionalText(provider.protocol),
+        api_key_env: optionalText(provider.api_key_env),
+        anthropic_api_base_url: optionalText(provider.anthropic_api_base_url),
+      });
+      setProviders((previous) =>
+        previous.map((item) => (item.provider_id === updated.provider_id ? updated : item)),
+      );
+      setSettingsError(null);
+      setSettingsMessage(`Saved provider ${updated.display_name}.`);
+    } catch (error) {
+      setSettingsMessage(null);
+      setSettingsError(error instanceof Error ? error.message : "Provider update failed.");
+    }
+  }
+
+  async function handleProviderTest(provider: ProviderSummary) {
+    setTestingProviderId(provider.provider_id);
+    setProviderTestMessages((previous) => {
+      const next = { ...previous };
+      delete next[provider.provider_id];
+      return next;
+    });
+    try {
+      const result = await testProviderConnection(provider.provider_id);
+      const message = `${result.status}: ${result.detail}`;
+      setProviderTestMessages((previous) => ({
+        ...previous,
+        [provider.provider_id]: {
+          status: result.ok ? "success" : "error",
+          text: message,
+        },
+      }));
+    } catch (error) {
+      setProviderTestMessages((previous) => ({
+        ...previous,
+        [provider.provider_id]: {
+          status: "error",
+          text: error instanceof Error ? error.message : "Connection test failed.",
+        },
+      }));
+    } finally {
+      setTestingProviderId((current) =>
+        current === provider.provider_id ? null : current,
+      );
     }
   }
 
@@ -461,6 +566,8 @@ export function App() {
 
   function renderWorkspace() {
     const activeRepo = activeTaskDetail?.metadata.repo_analysis;
+    const activeGitHub = activeTaskDetail?.metadata.github_context;
+    const activeAcademic = activeTaskDetail?.metadata.academic_context;
     const activeTrace = activeTaskDetail?.metadata.orchestration;
     const activeApproval = activeTaskDetail?.approval;
 
@@ -531,6 +638,61 @@ export function App() {
                     </option>
                   ))}
                 </select>
+              </label>
+              <label>
+                <span>GitHub Repo</span>
+                <input
+                  type="text"
+                  placeholder="owner/repo"
+                  value={githubRepo}
+                  onChange={(event) => setGitHubRepo(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Issue Number</span>
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="Optional"
+                  value={githubIssueNumber}
+                  onChange={(event) => setGitHubIssueNumber(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>PR Number</span>
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="Optional"
+                  value={githubPrNumber}
+                  onChange={(event) => setGitHubPrNumber(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Journal Name</span>
+                <input
+                  type="text"
+                  placeholder="Nature, IEEE TSE..."
+                  value={journalName}
+                  onChange={(event) => setJournalName(event.target.value)}
+                />
+              </label>
+              <label className="full-width">
+                <span>Journal Guidelines URL</span>
+                <input
+                  type="url"
+                  placeholder="https://journal.example.com/for-authors"
+                  value={journalUrl}
+                  onChange={(event) => setJournalUrl(event.target.value)}
+                />
+              </label>
+              <label className="full-width">
+                <span>Reference Paper URLs</span>
+                <textarea
+                  value={referencePaperUrls}
+                  onChange={(event) => setReferencePaperUrls(event.target.value)}
+                  placeholder="One URL per line, or comma-separated."
+                />
               </label>
               <label className="toggle-row full-width">
                 <span>Require approval before execution</span>
@@ -614,7 +776,7 @@ export function App() {
               </span>
             </div>
             <div className="tabs-row">
-              {(["output", "stages", "repo", "approval", "metadata"] as PanelTab[]).map((tab) => (
+              {(["output", "stages", "repo", "github", "academic", "approval", "metadata"] as PanelTab[]).map((tab) => (
                 <button
                   key={tab}
                   type="button"
@@ -689,6 +851,119 @@ export function App() {
               </div>
             )}
 
+            {activeTab === "github" && (
+              <div className="panel-content">
+                <h3>GitHub Context</h3>
+                {activeGitHub ? (
+                  <div className="stage-list">
+                    {activeGitHub.repository && (
+                      <div className="stage-card">
+                        <div className="stage-head">
+                          <strong>{activeGitHub.repository.full_name}</strong>
+                          <a href={activeGitHub.repository.html_url} target="_blank" rel="noreferrer">
+                            Open
+                          </a>
+                        </div>
+                        <div className="stage-meta">
+                          <span>branch: {activeGitHub.repository.default_branch}</span>
+                          <span>language: {activeGitHub.repository.primary_language || "unknown"}</span>
+                        </div>
+                        <p>{activeGitHub.repository.description || "No repository description."}</p>
+                      </div>
+                    )}
+                    {activeGitHub.issue && (
+                      <div className="stage-card">
+                        <div className="stage-head">
+                          <strong>Issue #{activeGitHub.issue.number}</strong>
+                          <a href={activeGitHub.issue.html_url} target="_blank" rel="noreferrer">
+                            Open
+                          </a>
+                        </div>
+                        <div className="stage-meta">
+                          <span>{activeGitHub.issue.state}</span>
+                          <span>{activeGitHub.issue.author || "unknown"}</span>
+                        </div>
+                        <p>{activeGitHub.issue.title}</p>
+                        {activeGitHub.issue.body_excerpt && <p>{activeGitHub.issue.body_excerpt}</p>}
+                      </div>
+                    )}
+                    {activeGitHub.pull_request && (
+                      <div className="stage-card">
+                        <div className="stage-head">
+                          <strong>PR #{activeGitHub.pull_request.number}</strong>
+                          <a href={activeGitHub.pull_request.html_url} target="_blank" rel="noreferrer">
+                            Open
+                          </a>
+                        </div>
+                        <div className="stage-meta">
+                          <span>{activeGitHub.pull_request.state}</span>
+                          <span>
+                            {activeGitHub.pull_request.head_ref || "-"} → {activeGitHub.pull_request.base_ref || "-"}
+                          </span>
+                        </div>
+                        <p>{activeGitHub.pull_request.title}</p>
+                        {activeGitHub.pull_request.body_excerpt && (
+                          <p>{activeGitHub.pull_request.body_excerpt}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="empty-hint">No GitHub context for this task.</div>
+                )}
+              </div>
+            )}
+
+            {activeTab === "academic" && (
+              <div className="panel-content">
+                <h3>Academic Context</h3>
+                {activeAcademic ? (
+                  <div className="stage-list">
+                    {activeAcademic.journal && (
+                      <div className="stage-card">
+                        <div className="stage-head">
+                          <strong>{activeAcademic.journal.journal_name || "Journal"}</strong>
+                          <span>{activeAcademic.journal.status}</span>
+                        </div>
+                        {activeAcademic.journal.journal_url && (
+                          <a
+                            href={activeAcademic.journal.journal_url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open guidelines
+                          </a>
+                        )}
+                        {activeAcademic.journal.title && <p>{activeAcademic.journal.title}</p>}
+                        {activeAcademic.journal.excerpt && (
+                          <p>{activeAcademic.journal.excerpt}</p>
+                        )}
+                      </div>
+                    )}
+                    {activeAcademic.reference_papers.map((reference, index) => (
+                      <div key={`${reference.url}-${index}`} className="stage-card">
+                        <div className="stage-head">
+                          <strong>Reference paper {index + 1}</strong>
+                          <span>{reference.status}</span>
+                        </div>
+                        <a href={reference.url} target="_blank" rel="noreferrer">
+                          {reference.title || reference.url}
+                        </a>
+                        {reference.excerpt && <p>{reference.excerpt}</p>}
+                      </div>
+                    ))}
+                    {activeAcademic.warnings.map((warning) => (
+                      <div key={warning} className="message error">
+                        {warning}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty-hint">No academic context for this task.</div>
+                )}
+              </div>
+            )}
+
             {activeTab === "approval" && (
               <div className="panel-content">
                 <h3>Approval</h3>
@@ -752,13 +1027,14 @@ export function App() {
   function renderModelControl() {
     return (
       <div className="settings-shell">
+        {settingsMessage && <div className="message success">{settingsMessage}</div>}
+        {settingsError && <div className="message error">{settingsError}</div>}
+
         <div className="panel settings-panel">
           <div className="panel-title-row">
             <h2>Model Control Center</h2>
             <span className="subtle">Priorities and enablement</span>
           </div>
-          {settingsMessage && <div className="message success">{settingsMessage}</div>}
-          {settingsError && <div className="message error">{settingsError}</div>}
           <div className="settings-grid">
             {models.map((model) => (
               <div key={model.model_id} className="settings-card">
@@ -815,6 +1091,143 @@ export function App() {
                 </button>
               </div>
             ))}
+          </div>
+        </div>
+
+        <div className="panel settings-panel provider-panel">
+          <div className="panel-title-row">
+            <h2>Provider/API Management</h2>
+            <span className="subtle">Connection settings and key status</span>
+          </div>
+          <p className="subtle provider-note">
+            API keys stay on the backend. This view only edits environment variable names and
+            reports whether a key is configured.
+          </p>
+          <div className="settings-grid provider-grid">
+            {providers.length === 0 ? (
+              <div className="empty-hint">No providers loaded.</div>
+            ) : (
+              providers.map((provider) => {
+                const testMessage = providerTestMessages[provider.provider_id];
+                return (
+                  <div key={provider.provider_id} className="settings-card provider-card">
+                    <div className="stage-head">
+                      <strong>{provider.display_name}</strong>
+                      <span className={`pill ${provider.enabled ? "accent" : "muted"}`}>
+                        {provider.enabled ? "Enabled" : "Disabled"}
+                      </span>
+                    </div>
+                    {provider.description && (
+                      <div className="subtle">{provider.description}</div>
+                    )}
+
+                    <div className="provider-secret-row">
+                      <span>API key</span>
+                      <strong className={provider.api_key_configured ? "key-ok" : "key-missing"}>
+                        {provider.api_key_configured ? "Configured" : "Missing"}
+                      </strong>
+                    </div>
+
+                    <label className="toggle-row">
+                      <span>Enabled</span>
+                      <input
+                        type="checkbox"
+                        aria-label={`${provider.display_name} enabled`}
+                        checked={provider.enabled}
+                        onChange={(event) =>
+                          updateProviderDraft(provider.provider_id, {
+                            enabled: event.target.checked,
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>Base URL</span>
+                      <input
+                        type="text"
+                        aria-label={`${provider.display_name} base URL`}
+                        value={provider.api_base_url ?? ""}
+                        placeholder="https://api.example.com/v1"
+                        onChange={(event) =>
+                          updateProviderDraft(provider.provider_id, {
+                            api_base_url: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>Protocol</span>
+                      <input
+                        type="text"
+                        aria-label={`${provider.display_name} protocol`}
+                        value={provider.protocol ?? ""}
+                        placeholder="openai, openai-chat, openai-compatible, anthropic"
+                        onChange={(event) =>
+                          updateProviderDraft(provider.provider_id, {
+                            protocol: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>API key env</span>
+                      <input
+                        type="text"
+                        aria-label={`${provider.display_name} API key environment variable`}
+                        value={provider.api_key_env ?? ""}
+                        placeholder="OPENAI_API_KEY"
+                        onChange={(event) =>
+                          updateProviderDraft(provider.provider_id, {
+                            api_key_env: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>Anthropic URL</span>
+                      <input
+                        type="text"
+                        aria-label={`${provider.display_name} Anthropic URL`}
+                        value={provider.anthropic_api_base_url ?? ""}
+                        placeholder="Optional Anthropic-compatible endpoint"
+                        onChange={(event) =>
+                          updateProviderDraft(provider.provider_id, {
+                            anthropic_api_base_url: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+
+                    <div className="action-row provider-actions">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        aria-label={`Save ${provider.display_name} provider`}
+                        onClick={() => handleProviderSave(provider)}
+                      >
+                        Save provider
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        aria-label={`Test ${provider.display_name} connection`}
+                        disabled={testingProviderId === provider.provider_id}
+                        onClick={() => handleProviderTest(provider)}
+                      >
+                        {testingProviderId === provider.provider_id
+                          ? "Testing..."
+                          : "Test connection"}
+                      </button>
+                    </div>
+                    {testMessage && (
+                      <div className={`message ${testMessage.status}`}>
+                        {testMessage.text}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       </div>
@@ -1143,13 +1556,15 @@ export function App() {
           <div>
             <h1>Mindforge Control Workspace</h1>
             <p>
-              Web app shell inspired by OpenHands, with task history, approvals, model control,
-              and rule templates in one place.
+              Web app shell inspired by OpenHands, with task history, approvals, model and
+              provider control, and rule templates in one place.
             </p>
           </div>
           <div className="status-row">
-            <span className="pill accent">Phase 8</span>
+            <span className="pill accent">Phase 11</span>
+            <span className="pill">Paper revision ready</span>
             <span className="pill">{models.length} models</span>
+            <span className="pill">{providers.length} providers</span>
             <span className="pill">{ruleTemplates.length} templates</span>
             <span className="pill">{historyItems.length} recent tasks</span>
           </div>

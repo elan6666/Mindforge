@@ -14,8 +14,47 @@ providers:
     description: GLM-family models used for review and secondary analysis.
     enabled: true
     api_base_url: https://open.bigmodel.cn/api/paas/v4
+  - provider_id: volces-ark
+    display_name: Volces Ark
+    description: Doubao models exposed through the Ark OpenAI-compatible coding endpoint.
+    enabled: true
+    api_base_url: https://ark.cn-beijing.volces.com/api/coding/v3
+    metadata:
+      protocol: openai
+      api_key_env: ARK_API_KEY
+      anthropic_api_base_url: https://ark.cn-beijing.volces.com/api/coding
 
 models:
+  - model_id: doubao-seed-2.0-lite
+    display_name: Doubao Seed 2.0 Lite
+    provider_id: volces-ark
+    upstream_model: doubao-seed-2.0-lite
+    priority: high
+    enabled: true
+    supported_preset_modes:
+      - default
+      - code-engineering
+      - code-review
+      - doc-organize
+      - paper-revision
+    supported_task_types:
+      - planning
+      - writing
+      - review
+    supported_roles:
+      - coordinator
+      - project-manager
+      - backend
+      - frontend
+      - reviewer
+      - security-reviewer
+      - documenter
+      - editor
+      - standards-editor
+      - reviser
+      - style-reviewer
+      - content-reviewer
+      - final-reviewer
   - model_id: gpt-5.4
     display_name: GPT-5.4
     provider_id: openai
@@ -49,6 +88,7 @@ models:
       - documenter
       - editor
       - reviser
+      - style-reviewer
   - model_id: glm-5.1
     display_name: GLM 5.1
     provider_id: zhipu
@@ -62,7 +102,8 @@ models:
     supported_roles:
       - reviewer
       - security-reviewer
-      - reviewer-content
+      - content-reviewer
+      - final-reviewer
 
 routing:
   default_model_id: gpt-5.4
@@ -71,11 +112,11 @@ routing:
     code-engineering: gpt-5.4
     code-review: glm-5.1
     doc-organize: kimi-2.5
-    paper-revision: gpt-5.4
+    paper-revision: doubao-seed-2.0-lite
   task_type_defaults:
     planning: gpt-5.4
     review: glm-5.1
-    writing: kimi-2.5
+    writing: doubao-seed-2.0-lite
   role_defaults:
     code-engineering:
       project-manager: gpt-5.4
@@ -89,6 +130,8 @@ routing:
       documenter: kimi-2.5
       editor: kimi-2.5
     paper-revision:
-      standards-editor: gpt-5.4
-      reviser: gpt-5.4
-      reviewer: glm-5.1
+      standards-editor: doubao-seed-2.0-lite
+      reviser: doubao-seed-2.0-lite
+      style-reviewer: doubao-seed-2.0-lite
+      content-reviewer: doubao-seed-2.0-lite
+      final-reviewer: doubao-seed-2.0-lite

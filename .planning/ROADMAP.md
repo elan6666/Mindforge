@@ -46,8 +46,9 @@ Explicit exclusions:
 - [x] **Phase 6: Frontend Workspace Shell** - add a Codex-like app shell with sidebar navigation, chat workspace, history, presets, and result panels
 - [x] **Phase 7: Model Control Center & Rule Templates** - add user-facing model management, model priorities, rule templates, and dynamic agent-model assignment
 - [x] **Phase 8: Approval & History** - add approvals, execution logs, history, and result indexing
-- [ ] **Phase 9: GitHub Read-Only Context** - add GitHub repository, issue, and PR read-only context plus richer result presentation
-- [ ] **Phase 10: Academic Paper Revision Mode** - complete the paper revision workflow including standards analysis, rewriting, reviewer loops, and journal-guideline-driven rules
+- [x] **Phase 9: GitHub Read-Only Context** - add GitHub repository, issue, and PR read-only context plus richer result presentation
+- [x] **Phase 10: Academic Paper Revision Mode** - complete the paper revision workflow including standards analysis, rewriting, reviewer loops, and journal-guideline-driven rules
+- [x] **Phase 11: Provider API Management Center** - add user-facing provider/API configuration, key-status checks, and safe connection testing
 
 ## Phase Details
 
@@ -210,8 +211,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 09-01: implement GitHub read-only context retrieval
-- [ ] 09-02: improve result and history presentation
+- [x] 09-01: implement GitHub read-only context retrieval
+- [x] 09-02: improve result and history presentation
 
 ### Phase 10: Academic Paper Revision Mode
 
@@ -222,21 +223,42 @@ Plans:
 1. `paper-revision` instantiates standards analysis, reviser, and reviewer agents.
 2. Journal tasks can use guideline collection and representative paper-style summaries.
 3. The workflow supports at least one complete cycle of review, revise, and re-review.
-4. Paper revision can consume Phase 6 rule templates for role-to-model assignment.  
+4. Paper revision can consume Phase 7 rule templates for role-to-model assignment.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 10-01: define paper revision role contracts, journal-guideline collection, and IO structure
-- [ ] 10-02: implement rewriting, reviewer loops, and final revision reports
+- [x] 10-01: define paper revision role contracts, journal-guideline collection, and IO structure
+- [x] 10-02: implement rewriting, reviewer loops, and final revision reports
 
 OpenHands-first references for implementation:
 - reuse the generic role, stage, and workspace-context mechanisms established in earlier reused subsystems
 - build paper revision as a Mindforge-specific workflow on top of reused orchestration and settings foundations rather than introducing a separate framework
 
+### Phase 11: Provider API Management Center
+
+**Goal**: Let users manage provider/API connection metadata from the app without storing or exposing secrets.
+**Depends on**: Phase 10
+**Requirements**: [API-01, API-02, API-03, API-04, MODEL-01, MODEL-02, MODEL-03, REUSE-01, REUSE-02, REUSE-03]
+**Success Criteria**:
+1. Users can view effective provider settings, protocol, base URLs, API key env var names, and key configured status.
+2. Users can update non-secret provider settings from the frontend.
+3. Users can test provider connectivity and receive sanitized status-only results.
+4. Runtime provider resolution uses provider overrides without rewriting the seed catalog.
+5. No API key value is committed, returned by API responses, or rendered in the UI.
+**Plans**: 1 plan
+
+Plans:
+- [x] 11-01: implement provider control APIs, frontend Provider/API Management, research docs, and verification
+
+Benchmark constraints:
+- Codex and Claude Code define the execution quality floor: codebase reading, multi-file edits, tests, explanations, and reviewable delivery.
+- OpenHands defines the architecture reference: runtime boundary, agent/action/observation concepts, skills, and repo instructions.
+- Mindforge keeps its differentiation in product orchestration: presets, roles, provider/model routing, rules, approvals, history, and paper/development workflows.
+
 ## Progress
 
 **Execution Order:**  
-Phases execute in numeric order: `1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10`
+Phases execute in numeric order: `1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11`
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -248,5 +270,6 @@ Phases execute in numeric order: `1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 1
 | 6. Frontend Workspace Shell | 2/2 | Complete | 2026-04-19 |
 | 7. Model Control Center & Rule Templates | 2/2 | Complete | 2026-04-19 |
 | 8. Approval & History | 2/2 | Complete | 2026-04-19 |
-| 9. GitHub Read-Only Context | 0/2 | Not started | - |
-| 10. Academic Paper Revision Mode | 0/2 | Not started | - |
+| 9. GitHub Read-Only Context | 2/2 | Complete | 2026-04-21 |
+| 10. Academic Paper Revision Mode | 2/2 | Complete | 2026-04-30 |
+| 11. Provider API Management Center | 1/1 | Complete | 2026-04-30 |

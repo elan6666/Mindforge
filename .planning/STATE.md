@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Phase 8 execution completed
-last_updated: "2026-04-19T14:25:00.000Z"
-last_activity: 2026-04-19 -- Phase 8 delivered blocking approvals, SQLite-backed task/stage history, history APIs, and frontend approval/history views
+stopped_at: Phase 11 execution completed
+last_updated: "2026-04-30T00:00:00.000Z"
+last_activity: 2026-04-30 -- Phase 11 delivered Provider/API Management Center, provider overrides, safe key-status display, and connection tests
 progress:
-  total_phases: 10
-  completed_phases: 8
-  total_plans: 17
-  completed_plans: 17
-  percent: 80
+  total_phases: 11
+  completed_phases: 11
+  total_plans: 22
+  completed_plans: 22
+  percent: 100
 ---
 
 # Project State
@@ -19,17 +19,17 @@ progress:
 ## Project Reference
 
 See: `.planning/PROJECT.md`  
-**Core value:** Mindforge delivers a preset-driven multi-agent assistant on top of OpenHands, then expands into configurable model routing, a Codex-like frontend workspace, user-facing model management, and rule-driven agent/model assignment.  
-**Current focus:** Phase 09 - github-read-only-context
+**Core value:** Mindforge delivers a preset-driven multi-agent assistant on top of OpenHands, then expands into configurable provider/model routing, a Codex-like frontend workspace, user-facing provider/API management, and rule-driven agent/model assignment.
+**Current focus:** Milestone v1.0 complete
 
 ## Current Position
 
-Phase: 08 (approval-and-history) - COMPLETED  
-Plan: 08-01 and 08-02 completed  
-Status: Ready to plan Phase 09  
-Last activity: 2026-04-19 -- Phase 8 delivered blocking approvals plus SQLite-backed task/stage history
+Phase: 11 (provider-api-management-center) - COMPLETED
+Plan: 11-01 completed
+Status: Ready for milestone audit or next milestone planning
+Last activity: 2026-04-30 -- Phase 11 delivered provider/API control APIs, frontend provider management, sanitized key status, and connection tests
 
-Progress: 70%
+Progress: 100%
 
 ## Accumulated Context
 
@@ -58,6 +58,15 @@ Progress: 70%
 - [Phase 8] High-risk tasks can now enter `pending_approval`, be approved or rejected through API/UI, and resume execution after approval.
 - [Phase 8] Task runs, stage runs, and approval records are now persisted in SQLite and exposed through `/api/history/*` and `/api/approvals/*`.
 - [Phase 8] The frontend workspace now reads recent task history from the backend and exposes an approval tab plus status filtering.
+- [Phase 9] GitHub repository, issue, and pull request summaries can now be fetched through dedicated read-only APIs and attached to tasks as structured metadata.
+- [Phase 9] Task execution and orchestration prompts now include GitHub context when provided.
+- [Phase 9] The frontend workspace now accepts GitHub references and shows a dedicated GitHub result tab for current and historical tasks.
+- [Phase 10] `paper-revision` now runs standards analysis, revision draft, style review, content review, revision iteration, and final re-review stages.
+- [Phase 10] Journal guideline URLs and reference paper URLs can be fetched as lightweight academic context and injected into paper revision prompts.
+- [Phase 10] The Volces Ark `doubao-seed-2.0-lite` model is registered through an OpenAI-compatible `model-api` adapter path using `ARK_API_KEY`.
+- [Phase 11] Provider/API Management Center now lets users update non-secret provider overrides and view API key configured status without showing key values.
+- [Phase 11] Provider overrides are layered over `catalog.yaml`, and runtime provider resolution consumes the effective provider config.
+- [Phase 11] Codex and Claude Code are execution-quality baselines; OpenHands remains the architecture reference; Mindforge differentiates through controllable multi-agent/product orchestration.
 - [Roadmap update] Split backend model routing from the user-facing model control center so provider/model registry logic and UI rule authoring do not ship in the same phase.
 - [Roadmap update] Add a dedicated frontend workspace phase for a Codex-like app shell with sidebar, chat composer, history, presets, and execution/result panels.
 - [Roadmap update] The model control center will expose priorities `high`, `medium`, `low`, and `disabled`, and support rule templates that assign different models to different responsibilities.
@@ -71,12 +80,13 @@ None yet.
 
 ### Blockers/Concerns
 
-- Paper revision should consume the generic rule-template system rather than growing a one-off parallel assignment mechanism.
+- Paper revision consumes the generic rule-template system; future work should improve reviewer depth and citation-aware manuscript handling rather than add a parallel assignment mechanism.
 - A future skills system should distinguish between reusable instruction content and executable runtime capabilities; otherwise the architecture will become confusing.
 - Future implementation work should avoid copying `enterprise/` code or dragging cloud and multi-tenant complexity into the prototype just because it exists upstream.
+- Provider/API management currently stores env var names only; future secret stores must be git-ignored and must never echo plaintext keys.
 
 ## Session Continuity
 
-Last session: 2026-04-19  
-Stopped at: Phase 8 execution completed  
-Resume file: `.planning/phases/08-approval-and-history/08-VERIFICATION.md`
+Last session: 2026-04-30
+Stopped at: Phase 11 execution completed
+Resume file: `.planning/phases/11-provider-api-management-center/11-VERIFICATION.md`

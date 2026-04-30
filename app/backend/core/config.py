@@ -30,13 +30,25 @@ class Settings(BaseSettings):
     )
     openhands_mode: str = Field(
         default="mock",
-        description="Execution mode for the OpenHands adapter: mock, http, or disabled.",
+        description="Execution mode for the OpenHands adapter: mock, http, model-api, or disabled.",
     )
     openhands_base_url: str | None = Field(
         default=None,
         description="Optional OpenHands-compatible HTTP endpoint.",
     )
     openhands_timeout_seconds: int = Field(default=30)
+    github_api_base_url: str = Field(
+        default="https://api.github.com",
+        description="Base URL for GitHub read-only API access.",
+    )
+    github_token: str | None = Field(
+        default=None,
+        description="Optional GitHub token used for authenticated read-only requests.",
+    )
+    github_timeout_seconds: int = Field(default=20)
+    academic_context_timeout_seconds: int = Field(default=15)
+    model_api_timeout_seconds: int = Field(default=60)
+    model_api_max_tokens: int = Field(default=1200)
     sqlite_db_path: str = Field(
         default=str(Path("app") / "data" / "mindforge.db"),
         description="SQLite database path for task history and approvals.",

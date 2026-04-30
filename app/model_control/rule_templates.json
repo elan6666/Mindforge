@@ -52,7 +52,7 @@
         "writing",
         "review"
       ],
-      "default_coordinator_model_id": "gpt-5.4",
+      "default_coordinator_model_id": "doubao-seed-2.0-lite",
       "enabled": true,
       "is_default": true,
       "trigger_keywords": [
@@ -66,22 +66,27 @@
         {
           "role": "standards-editor",
           "responsibility": "Guideline and journal standard analysis",
-          "model_id": "gpt-5.4"
+          "model_id": "doubao-seed-2.0-lite"
         },
         {
           "role": "reviser",
           "responsibility": "Content revision and rewriting",
-          "model_id": "gpt-5.4"
-        },
-        {
-          "role": "reviewer",
-          "responsibility": "Content review and reviewer-style feedback",
-          "model_id": "glm-5.1"
+          "model_id": "doubao-seed-2.0-lite"
         },
         {
           "role": "style-reviewer",
           "responsibility": "Tone and writing-style review",
-          "model_id": "kimi-2.5"
+          "model_id": "doubao-seed-2.0-lite"
+        },
+        {
+          "role": "content-reviewer",
+          "responsibility": "Content review and reviewer-style feedback",
+          "model_id": "doubao-seed-2.0-lite"
+        },
+        {
+          "role": "final-reviewer",
+          "responsibility": "Final re-review after revision iteration",
+          "model_id": "doubao-seed-2.0-lite"
         }
       ],
       "notes": "Useful for paper revision scenarios with separate style and content review responsibilities."

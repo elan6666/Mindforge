@@ -2,7 +2,13 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
-from app.backend.schemas.model import ModelControlUpdate, ModelSummary
+from app.backend.schemas.model import (
+    ModelControlUpdate,
+    ModelSummary,
+    ProviderConnectionTestResult,
+    ProviderControlUpdate,
+    ProviderSummary,
+)
 from app.backend.schemas.rule_template import RuleTemplateSummary, RuleTemplateUpsert
 from app.backend.services.model_control_service import (
     ModelControlError,
@@ -35,6 +41,39 @@ def update_editable_model(
     """Persist editable fields for one model."""
     try:
         return service.update_model(model_id, payload)
+    except ModelControlError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/providers", response_model=list[ProviderSummary])
+def list_editable_providers(
+    service: ModelControlService = Depends(get_model_control_service),
+) -> list[ProviderSummary]:
+    """Return current editable provider state."""
+    return service.list_providers()
+
+
+@router.put("/providers/{provider_id}", response_model=ProviderSummary)
+def update_editable_provider(
+    provider_id: str,
+    payload: ProviderControlUpdate,
+    service: ModelControlService = Depends(get_model_control_service),
+) -> ProviderSummary:
+    """Persist editable fields for one provider."""
+    try:
+        return service.update_provider(provider_id, payload)
+    except ModelControlError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/providers/{provider_id}/test", response_model=ProviderConnectionTestResult)
+def test_provider_connection(
+    provider_id: str,
+    service: ModelControlService = Depends(get_model_control_service),
+) -> ProviderConnectionTestResult:
+    """Check local connectivity/configuration for one provider."""
+    try:
+        return service.test_provider_connection(provider_id)
     except ModelControlError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

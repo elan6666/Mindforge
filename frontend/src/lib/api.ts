@@ -1,8 +1,13 @@
 import type {
   ApprovalRecord,
+  GitHubIssueSummary,
+  GitHubPullRequestSummary,
+  GitHubRepositorySummary,
   ModelControlUpdate,
   ModelSummary,
   PresetSummary,
+  ProviderConnectionTestResult,
+  ProviderControlUpdate,
   ProviderSummary,
   RuleTemplateSummary,
   RuleTemplateUpsert,
@@ -45,7 +50,28 @@ export function fetchPresets(): Promise<PresetSummary[]> {
 }
 
 export function fetchProviders(): Promise<ProviderSummary[]> {
-  return requestJson<ProviderSummary[]>("/providers");
+  return requestJson<ProviderSummary[]>("/control/providers");
+}
+
+export function updateProviderControl(
+  providerId: string,
+  payload: ProviderControlUpdate,
+): Promise<ProviderSummary> {
+  return requestJson<ProviderSummary>(`/control/providers/${providerId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function testProviderConnection(
+  providerId: string,
+): Promise<ProviderConnectionTestResult> {
+  return requestJson<ProviderConnectionTestResult>(
+    `/control/providers/${providerId}/test`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 export function fetchModels(): Promise<ModelSummary[]> {
@@ -122,6 +148,33 @@ export function rejectTask(taskId: string, comment?: string): Promise<TaskResult
   });
 }
 
+export function fetchGitHubRepository(
+  owner: string,
+  repo: string,
+): Promise<GitHubRepositorySummary> {
+  return requestJson<GitHubRepositorySummary>(`/github/repositories/${owner}/${repo}`);
+}
+
+export function fetchGitHubIssue(
+  owner: string,
+  repo: string,
+  issueNumber: number,
+): Promise<GitHubIssueSummary> {
+  return requestJson<GitHubIssueSummary>(
+    `/github/repositories/${owner}/${repo}/issues/${issueNumber}`,
+  );
+}
+
+export function fetchGitHubPullRequest(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<GitHubPullRequestSummary> {
+  return requestJson<GitHubPullRequestSummary>(
+    `/github/repositories/${owner}/${repo}/pulls/${prNumber}`,
+  );
+}
+
 export function submitTask(payload: {
   prompt: string;
   preset_mode: string;
@@ -129,6 +182,12 @@ export function submitTask(payload: {
   task_type?: string | null;
   model_override?: string | null;
   rule_template_id?: string | null;
+  github_repo?: string | null;
+  github_issue_number?: number | null;
+  github_pr_number?: number | null;
+  journal_name?: string | null;
+  journal_url?: string | null;
+  reference_paper_urls?: string[];
   metadata?: Record<string, unknown>;
 }): Promise<TaskResult> {
   return requestJson<TaskResult>("/tasks", {

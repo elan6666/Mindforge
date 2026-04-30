@@ -5,12 +5,17 @@ from pathlib import Path
 
 import yaml
 
-from app.backend.schemas.model import ModelCatalog, ModelOverridesDocument
+from app.backend.schemas.model import (
+    ModelCatalog,
+    ModelOverridesDocument,
+    ProviderOverridesDocument,
+)
 
 MODEL_REGISTRY_DIR = Path(__file__).resolve().parents[2] / "model_registry"
 CATALOG_PATH = MODEL_REGISTRY_DIR / "catalog.yaml"
 MODEL_CONTROL_DIR = Path(__file__).resolve().parents[2] / "model_control"
 MODEL_OVERRIDES_PATH = MODEL_CONTROL_DIR / "model_overrides.json"
+PROVIDER_OVERRIDES_PATH = MODEL_CONTROL_DIR / "provider_overrides.json"
 
 
 def load_model_catalog() -> ModelCatalog:
@@ -35,4 +40,20 @@ def save_model_overrides(document: ModelOverridesDocument) -> None:
     """Persist user-editable model overrides to JSON."""
     MODEL_CONTROL_DIR.mkdir(parents=True, exist_ok=True)
     with MODEL_OVERRIDES_PATH.open("w", encoding="utf-8") as handle:
+        json.dump(document.model_dump(), handle, ensure_ascii=False, indent=2)
+
+
+def load_provider_overrides() -> ProviderOverridesDocument:
+    """Load user-editable provider overrides from JSON."""
+    if not PROVIDER_OVERRIDES_PATH.exists():
+        return ProviderOverridesDocument()
+    with PROVIDER_OVERRIDES_PATH.open("r", encoding="utf-8") as handle:
+        raw_data = json.load(handle) or {}
+    return ProviderOverridesDocument.model_validate(raw_data)
+
+
+def save_provider_overrides(document: ProviderOverridesDocument) -> None:
+    """Persist user-editable provider overrides to JSON."""
+    MODEL_CONTROL_DIR.mkdir(parents=True, exist_ok=True)
+    with PROVIDER_OVERRIDES_PATH.open("w", encoding="utf-8") as handle:
         json.dump(document.model_dump(), handle, ensure_ascii=False, indent=2)

@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 
 from app.backend.integration.openhands_adapter import OpenHandsAdapter
+from app.backend.schemas.academic_context import AcademicContextSummary
+from app.backend.schemas.github_context import GitHubContextSummary
 from app.backend.schemas.model import ModelSelection
 from app.backend.schemas.orchestration import OrchestrationTrace, StageExecution
 from app.backend.schemas.preset import PresetDefinition
@@ -18,6 +20,11 @@ ROLE_TITLES: dict[str, str] = {
     "backend": "Backend Engineer",
     "frontend": "Frontend Engineer",
     "reviewer": "Reviewer",
+    "standards-editor": "Standards Editor",
+    "reviser": "Paper Reviser",
+    "style-reviewer": "Style Reviewer",
+    "content-reviewer": "Content Reviewer",
+    "final-reviewer": "Final Reviewer",
 }
 
 ROLE_INSTRUCTIONS: dict[str, str] = {
@@ -35,7 +42,36 @@ ROLE_INSTRUCTIONS: dict[str, str] = {
         "Review the prior stage outputs, identify contradictions or missing details, "
         "and provide a final recommendation with follow-up actions."
     ),
+    "standards-editor": (
+        "Extract the journal requirements, academic standards, manuscript constraints, "
+        "and venue-specific writing signals that later stages must follow."
+    ),
+    "reviser": (
+        "Revise the manuscript content according to the standards analysis and reviewer "
+        "feedback while preserving the author's claims and evidence."
+    ),
+    "style-reviewer": (
+        "Review academic tone, clarity, concision, section flow, and journal-style fit. "
+        "Return concrete writing issues and rewrite suggestions."
+    ),
+    "content-reviewer": (
+        "Review argument quality, novelty, methodology clarity, evidence strength, and "
+        "response-to-reviewer completeness."
+    ),
+    "final-reviewer": (
+        "Re-review the revised draft against the standards and reviewer comments, then "
+        "identify remaining blockers before submission."
+    ),
 }
+
+PAPER_REVISION_STAGE_FLOW: tuple[tuple[str, str, str], ...] = (
+    ("analyze-standards", "standards-editor", "Standards Analysis"),
+    ("revise", "reviser", "Revision Draft"),
+    ("style-review", "style-reviewer", "Style Review"),
+    ("content-review", "content-reviewer", "Content Review"),
+    ("iterate", "reviser", "Revision Iteration"),
+    ("re-review", "final-reviewer", "Final Re-review"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +84,7 @@ class StageDefinition:
     stage_name: str
     model_selection: ModelSelection
     instructions: str
+    flow_step: str | None = None
 
 
 class SerialOrchestrationService:
@@ -73,12 +110,29 @@ class SerialOrchestrationService:
         payload: TaskRequest,
         preset: PresetDefinition,
         repo_analysis: RepoAnalysisResult | None = None,
+        github_context: GitHubContextSummary | None = None,
     ) -> TaskResponse:
         """Run the code-engineering preset as a serial role chain."""
+        return self.execute_preset(
+            payload,
+            preset,
+            repo_analysis=repo_analysis,
+            github_context=github_context,
+        )
+
+    def execute_preset(
+        self,
+        payload: TaskRequest,
+        preset: PresetDefinition,
+        repo_analysis: RepoAnalysisResult | None = None,
+        github_context: GitHubContextSummary | None = None,
+        academic_context: AcademicContextSummary | None = None,
+    ) -> TaskResponse:
+        """Run a supported preset as a serial role chain."""
         stage_defs = self._build_stage_definitions(payload, preset)
         trace = OrchestrationTrace(
             preset_mode=preset.preset_mode,
-            strategy="serial-role-orchestration",
+            strategy=self._strategy_for_preset(preset.preset_mode),
             total_stages=len(stage_defs),
             completed_stages=0,
         )
@@ -90,6 +144,8 @@ class SerialOrchestrationService:
                 stage=stage,
                 trace=trace,
                 repo_analysis=repo_analysis,
+                github_context=github_context,
+                academic_context=academic_context,
             )
             result = self.adapter.run_task(stage_payload)
             stage_execution = StageExecution(
@@ -126,30 +182,69 @@ class SerialOrchestrationService:
         preset: PresetDefinition,
     ) -> list[StageDefinition]:
         """Translate preset role order into concrete stage definitions."""
+        if preset.preset_mode == "paper-revision":
+            return [
+                self._build_stage_definition(
+                    payload=payload,
+                    preset=preset,
+                    order=order,
+                    role=role,
+                    stage_id=stage_id,
+                    stage_name=stage_name,
+                    flow_step=stage_id,
+                )
+                for order, (stage_id, role, stage_name) in enumerate(
+                    PAPER_REVISION_STAGE_FLOW,
+                    start=1,
+                )
+            ]
+
         stages: list[StageDefinition] = []
         for order, role in enumerate(preset.agent_roles, start=1):
             stage_id = role.replace("_", "-")
-            model_selection = self.model_router.resolve_for_role(
-                preset_mode=preset.preset_mode,
-                task_type=payload.task_type,
-                role=role,
-                explicit_model=payload.role_model_overrides.get(role),
-                preset_default_model=preset.default_models.get(role),
-            )
             stages.append(
-                StageDefinition(
+                self._build_stage_definition(
+                    payload=payload,
+                    preset=preset,
                     order=order,
                     role=role,
                     stage_id=stage_id,
                     stage_name=ROLE_TITLES.get(role, role.replace("-", " ").title()),
-                    model_selection=model_selection,
-                    instructions=ROLE_INSTRUCTIONS.get(
-                        role,
-                        "Produce a role-specific implementation handoff.",
-                    ),
                 )
             )
         return stages
+
+    def _build_stage_definition(
+        self,
+        *,
+        payload: TaskRequest,
+        preset: PresetDefinition,
+        order: int,
+        role: str,
+        stage_id: str,
+        stage_name: str,
+        flow_step: str | None = None,
+    ) -> StageDefinition:
+        """Resolve one stage definition including its role-specific model."""
+        model_selection = self.model_router.resolve_for_role(
+            preset_mode=preset.preset_mode,
+            task_type=payload.task_type,
+            role=role,
+            explicit_model=payload.role_model_overrides.get(role),
+            preset_default_model=preset.default_models.get(role),
+        )
+        return StageDefinition(
+            order=order,
+            role=role,
+            stage_id=stage_id,
+            stage_name=stage_name,
+            model_selection=model_selection,
+            instructions=ROLE_INSTRUCTIONS.get(
+                role,
+                "Produce a role-specific implementation handoff.",
+            ),
+            flow_step=flow_step,
+        )
 
     def _build_stage_payload(
         self,
@@ -158,6 +253,8 @@ class SerialOrchestrationService:
         stage: StageDefinition,
         trace: OrchestrationTrace,
         repo_analysis: RepoAnalysisResult | None = None,
+        github_context: GitHubContextSummary | None = None,
+        academic_context: AcademicContextSummary | None = None,
     ) -> dict[str, object]:
         """Build the adapter payload for a single stage."""
         return {
@@ -166,6 +263,8 @@ class SerialOrchestrationService:
                 stage,
                 trace,
                 repo_analysis=repo_analysis,
+                github_context=github_context,
+                academic_context=academic_context,
             ),
             "preset_mode": preset.preset_mode,
             "repo_path": payload.repo_path,
@@ -175,6 +274,7 @@ class SerialOrchestrationService:
                 "orchestration_stage": stage.stage_id,
                 "orchestration_stage_name": stage.stage_name,
                 "orchestration_stage_order": stage.order,
+                "orchestration_flow_step": stage.flow_step,
                 "orchestration_model": stage.model_selection.model_id,
                 "orchestration_model_selection": stage.model_selection.model_dump(),
                 "orchestration_previous_summaries": [
@@ -188,6 +288,14 @@ class SerialOrchestrationService:
                 "repo_analysis": (
                     repo_analysis.model_dump() if repo_analysis is not None else None
                 ),
+                "github_context": (
+                    github_context.model_dump() if github_context is not None else None
+                ),
+                "academic_context": (
+                    academic_context.model_dump()
+                    if academic_context is not None
+                    else None
+                ),
             },
             "model": stage.model_selection.upstream_model,
             "provider_id": stage.model_selection.provider_id,
@@ -199,11 +307,14 @@ class SerialOrchestrationService:
         stage: StageDefinition,
         trace: OrchestrationTrace,
         repo_analysis: RepoAnalysisResult | None = None,
+        github_context: GitHubContextSummary | None = None,
+        academic_context: AcademicContextSummary | None = None,
     ) -> str:
         """Create a deterministic stage prompt for the current role."""
         lines = [
             f"Role: {stage.stage_name} ({stage.role})",
             f"Stage order: {stage.order}/{trace.total_stages}",
+            f"Flow step: {stage.flow_step or stage.stage_id}",
             f"User request: {payload.prompt}",
             f"Repository path: {payload.repo_path or 'not provided'}",
             f"Primary responsibility: {stage.instructions}",
@@ -229,6 +340,66 @@ class SerialOrchestrationService:
                     "Repository analysis warnings: "
                     + " ".join(repo_analysis.warnings)
                 )
+        if github_context is not None:
+            if github_context.repository is not None:
+                lines.append(
+                    "GitHub repository: "
+                    f"{github_context.repository.full_name} "
+                    f"(default branch: {github_context.repository.default_branch}, "
+                    f"language: {github_context.repository.primary_language or 'unknown'})"
+                )
+                if github_context.repository.description:
+                    lines.append(
+                        f"GitHub repository description: {github_context.repository.description}"
+                    )
+            if github_context.issue is not None:
+                lines.append(
+                    "GitHub issue: "
+                    f"#{github_context.issue.number} {github_context.issue.title} "
+                    f"[{github_context.issue.state}]"
+                )
+                if github_context.issue.body_excerpt:
+                    lines.append(
+                        f"GitHub issue excerpt: {github_context.issue.body_excerpt}"
+                    )
+            if github_context.pull_request is not None:
+                lines.append(
+                    "GitHub pull request: "
+                    f"#{github_context.pull_request.number} {github_context.pull_request.title} "
+                    f"[{github_context.pull_request.state}]"
+                )
+                if github_context.pull_request.body_excerpt:
+                    lines.append(
+                        f"GitHub pull request excerpt: {github_context.pull_request.body_excerpt}"
+                    )
+        if academic_context is not None:
+            lines.append("Academic context:")
+            if academic_context.journal is not None:
+                journal = academic_context.journal
+                lines.append(
+                    "Journal guidelines: "
+                    f"{journal.journal_name or 'unknown journal'} | "
+                    f"url={journal.journal_url or '-'} | status={journal.status}"
+                )
+                if journal.title:
+                    lines.append(f"Journal guideline title: {journal.title}")
+                if journal.excerpt:
+                    lines.append(f"Journal guideline excerpt: {journal.excerpt}")
+            for index, reference in enumerate(
+                academic_context.reference_papers,
+                start=1,
+            ):
+                lines.append(
+                    f"Reference paper {index}: {reference.title or reference.url} "
+                    f"| status={reference.status}"
+                )
+                if reference.excerpt:
+                    lines.append(f"Reference paper {index} excerpt: {reference.excerpt}")
+            if academic_context.warnings:
+                lines.append(
+                    "Academic context warnings: "
+                    + " ".join(academic_context.warnings)
+                )
         if trace.stages:
             lines.append("Previous stage summaries:")
             for item in trace.stages:
@@ -240,6 +411,13 @@ class SerialOrchestrationService:
             ]
         )
         return "\n".join(lines)
+
+    @staticmethod
+    def _strategy_for_preset(preset_mode: str) -> str:
+        """Return the trace strategy label for a preset."""
+        if preset_mode == "paper-revision":
+            return "serial-paper-revision"
+        return "serial-role-orchestration"
 
     def _build_success_response(
         self,

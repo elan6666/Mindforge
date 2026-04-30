@@ -65,6 +65,11 @@ class ProviderSummary(BaseModel):
     display_name: str
     description: str
     enabled: bool
+    api_base_url: str | None = None
+    api_key_env: str | None = None
+    api_key_configured: bool = False
+    protocol: str = "openai"
+    anthropic_api_base_url: str | None = None
 
 
 class ModelSummary(BaseModel):
@@ -88,6 +93,16 @@ class ModelControlUpdate(BaseModel):
     enabled: bool | None = None
 
 
+class ProviderControlUpdate(BaseModel):
+    """Editable provider control fields exposed by the Provider/API UI."""
+
+    enabled: bool | None = None
+    api_base_url: str | None = None
+    api_key_env: str | None = None
+    protocol: str | None = None
+    anthropic_api_base_url: str | None = None
+
+
 class ModelOverrideEntry(BaseModel):
     """Persisted mutable override for one model entry."""
 
@@ -95,10 +110,40 @@ class ModelOverrideEntry(BaseModel):
     enabled: bool | None = None
 
 
+class ProviderOverrideEntry(BaseModel):
+    """Persisted mutable override for one provider entry."""
+
+    enabled: bool | None = None
+    api_base_url: str | None = None
+    api_key_env: str | None = None
+    protocol: str | None = None
+    anthropic_api_base_url: str | None = None
+
+
 class ModelOverridesDocument(BaseModel):
     """Local writable overrides layered on top of the seed catalog."""
 
     models: dict[str, ModelOverrideEntry] = Field(default_factory=dict)
+
+
+class ProviderOverridesDocument(BaseModel):
+    """Local writable provider overrides layered on top of the seed catalog."""
+
+    providers: dict[str, ProviderOverrideEntry] = Field(default_factory=dict)
+
+
+class ProviderConnectionTestResult(BaseModel):
+    """Result of a provider connectivity check."""
+
+    provider_id: str
+    ok: bool
+    status: str
+    detail: str
+    protocol: str
+    api_base_url: str | None = None
+    api_key_env: str | None = None
+    api_key_configured: bool = False
+    upstream_status: int | None = None
 
 
 class ModelSelection(BaseModel):

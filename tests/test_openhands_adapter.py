@@ -10,6 +10,8 @@ def make_settings(**overrides):
         "openhands_mode": "mock",
         "openhands_base_url": None,
         "openhands_timeout_seconds": 30,
+        "model_api_timeout_seconds": 60,
+        "model_api_max_tokens": 1200,
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -101,3 +103,49 @@ def test_http_mode_request_error_returns_failed_result(monkeypatch):
     assert result.status == "failed"
     assert result.provider == "openhands-http"
     assert result.error_message == "network down"
+
+
+def test_model_api_mode_calls_openai_compatible_endpoint(monkeypatch):
+    adapter = OpenHandsAdapter(make_settings(openhands_mode="model-api"))
+    monkeypatch.setenv("ARK_API_KEY", "test-secret")
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "model api ok",
+                        }
+                    }
+                ],
+                "usage": {"total_tokens": 12},
+            }
+
+    def fake_post(url, headers, json, timeout):
+        assert url == "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions"
+        assert headers["Authorization"] == "Bearer test-secret"
+        assert json["model"] == "doubao-seed-2.0-lite"
+        assert json["messages"][1]["content"] == "ping"
+        assert timeout == 60
+        return FakeResponse()
+
+    monkeypatch.setattr(requests, "post", fake_post)
+
+    result = adapter.run_task(
+        {
+            "prompt": "ping",
+            "model": "doubao-seed-2.0-lite",
+            "provider_id": "volces-ark",
+        }
+    )
+
+    assert result.status == "completed"
+    assert result.provider == "model-api:volces-ark"
+    assert result.output == "model api ok"
+    assert result.metadata["usage"]["total_tokens"] == 12
