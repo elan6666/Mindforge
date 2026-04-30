@@ -2,8 +2,8 @@
   "templates": [
     {
       "template_id": "code-engineering-default",
-      "display_name": "Code Engineering Default",
-      "description": "Default multi-role template for software implementation tasks.",
+      "display_name": "代码工程默认模板",
+      "description": "用于软件实现任务的默认多角色模板。",
       "preset_mode": "code-engineering",
       "task_types": [
         "planning",
@@ -22,31 +22,31 @@
       "assignments": [
         {
           "role": "project-manager",
-          "responsibility": "Task planning and work breakdown",
+          "responsibility": "任务规划和工作拆解",
           "model_id": "gpt-5.4"
         },
         {
           "role": "backend",
-          "responsibility": "Backend design and API implementation",
+          "responsibility": "后端设计和 API 实现",
           "model_id": "gpt-5.4"
         },
         {
           "role": "frontend",
-          "responsibility": "UI structure and interaction flow",
+          "responsibility": "界面结构和交互流程",
           "model_id": "kimi-2.5"
         },
         {
           "role": "reviewer",
-          "responsibility": "Cross-check stage outputs",
+          "responsibility": "交叉检查各阶段输出",
           "model_id": "glm-5.1"
         }
       ],
-      "notes": "Matches the Phase 3 serial code-engineering chain."
+      "notes": "匹配 Phase 3 的串行代码工程链路。"
     },
     {
       "template_id": "paper-revision-journal",
-      "display_name": "Paper Revision Journal",
-      "description": "Structured journal paper revision template with style and content review.",
+      "display_name": "期刊论文修改模板",
+      "description": "包含文风审查和内容审查的结构化期刊论文修改模板。",
       "preset_mode": "paper-revision",
       "task_types": [
         "writing",
@@ -65,31 +65,31 @@
       "assignments": [
         {
           "role": "standards-editor",
-          "responsibility": "Guideline and journal standard analysis",
+          "responsibility": "投稿指南和期刊标准分析",
           "model_id": "doubao-seed-2.0-lite"
         },
         {
           "role": "reviser",
-          "responsibility": "Content revision and rewriting",
+          "responsibility": "内容修改和重写",
           "model_id": "doubao-seed-2.0-lite"
         },
         {
           "role": "style-reviewer",
-          "responsibility": "Tone and writing-style review",
+          "responsibility": "语气和写作风格审查",
           "model_id": "doubao-seed-2.0-lite"
         },
         {
           "role": "content-reviewer",
-          "responsibility": "Content review and reviewer-style feedback",
+          "responsibility": "内容审查和审稿人式反馈",
           "model_id": "doubao-seed-2.0-lite"
         },
         {
           "role": "final-reviewer",
-          "responsibility": "Final re-review after revision iteration",
+          "responsibility": "修改迭代后的最终复审",
           "model_id": "doubao-seed-2.0-lite"
         }
       ],
-      "notes": "Useful for paper revision scenarios with separate style and content review responsibilities."
+      "notes": "适用于需要拆分文风审查和内容审查职责的论文修改场景。"
     }
   ]
 }

@@ -1,6 +1,6 @@
 preset_mode: default
-display_name: Default Assistant
-description: General fallback preset for tasks that do not explicitly select a mode.
+display_name: 默认助手
+description: 未明确选择模式时使用的通用兜底预设。
 agent_roles:
   - coordinator
 execution_flow:

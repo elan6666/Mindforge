@@ -2,7 +2,12 @@ import json
 
 import pytest
 
-from app.backend.schemas.model import ModelControlUpdate, ProviderControlUpdate
+from app.backend.schemas.model import (
+    ModelControlUpdate,
+    ModelCreateRequest,
+    ProviderControlUpdate,
+    ProviderCreateRequest,
+)
 from app.backend.schemas.rule_template import RuleAssignment, RuleTemplateUpsert
 from app.backend.services.coordinator_selection_service import (
     clear_coordinator_selection_service_cache,
@@ -28,9 +33,11 @@ def isolated_model_control_storage(tmp_path, monkeypatch):
     control_dir.mkdir(parents=True, exist_ok=True)
     overrides_path = control_dir / "model_overrides.json"
     provider_overrides_path = control_dir / "provider_overrides.json"
+    provider_secrets_path = control_dir / "provider_secrets.json"
     templates_path = control_dir / "rule_templates.json"
     overrides_path.write_text('{"models": {}}', encoding="utf-8")
     provider_overrides_path.write_text('{"providers": {}}', encoding="utf-8")
+    provider_secrets_path.write_text('{"api_keys": {}}', encoding="utf-8")
     templates_path.write_text(
         json.dumps(
             {
@@ -67,6 +74,7 @@ def isolated_model_control_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(model_loader, "MODEL_CONTROL_DIR", control_dir)
     monkeypatch.setattr(model_loader, "MODEL_OVERRIDES_PATH", overrides_path)
     monkeypatch.setattr(model_loader, "PROVIDER_OVERRIDES_PATH", provider_overrides_path)
+    monkeypatch.setattr(model_loader, "PROVIDER_SECRETS_PATH", provider_secrets_path)
     monkeypatch.setattr(rule_template_loader, "RULE_TEMPLATES_PATH", templates_path)
 
     clear_model_registry_service_cache()
@@ -131,6 +139,83 @@ def test_model_control_updates_provider_overrides(isolated_model_control_storage
     assert registry_provider.metadata["anthropic_api_base_url"] == (
         "https://openai.test/anthropic"
     )
+
+
+def test_model_control_creates_user_provider_model_and_secret(
+    isolated_model_control_storage,
+):
+    service = get_model_control_service()
+
+    provider = service.create_provider(
+        ProviderCreateRequest(
+            provider_id="custom-ark",
+            display_name="Custom Ark",
+            description="User-owned Ark endpoint",
+            api_base_url="https://ark.example/v3",
+            protocol="openai-compatible",
+            api_key="secret-value",
+            api_key_env="CUSTOM_ARK_KEY",
+        )
+    )
+    model = service.create_model(
+        ModelCreateRequest(
+            model_id="custom-doubao",
+            display_name="Custom Doubao",
+            provider_id="custom-ark",
+            upstream_model="doubao-seed-2.0-lite",
+            priority="high",
+            supported_preset_modes=["code-engineering"],
+            supported_roles=["backend"],
+        )
+    )
+
+    assert provider.is_custom is True
+    assert provider.api_key_configured is True
+    assert "secret-value" not in provider.model_dump_json()
+    assert model.is_custom is True
+    assert model.provider_id == "custom-ark"
+    assert any(item.provider_id == "custom-ark" for item in service.list_custom_providers())
+    assert any(item.model_id == "custom-doubao" for item in service.list_custom_models())
+
+    registry = get_model_registry_service()
+    assert registry.get_provider("custom-ark") is not None
+    assert registry.get_model("custom-doubao") is not None
+
+
+def test_provider_connection_uses_user_saved_api_key(
+    isolated_model_control_storage,
+    monkeypatch,
+):
+    service = get_model_control_service()
+    service.create_provider(
+        ProviderCreateRequest(
+            provider_id="custom-ark",
+            display_name="Custom Ark",
+            api_base_url="https://ark.example/v3",
+            protocol="openai-compatible",
+            api_key="secret-value",
+        )
+    )
+
+    class FakeResponse:
+        status_code = 200
+
+    def fake_get(url, headers, timeout):
+        assert url == "https://ark.example/v3/models"
+        assert headers["Authorization"] == "Bearer secret-value"
+        assert timeout == 10
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        "app.backend.services.model_control_service.requests.get",
+        fake_get,
+    )
+
+    result = service.test_provider_connection("custom-ark")
+
+    assert result.ok is True
+    assert result.status == "connected"
+    assert result.api_key_configured is True
 
 
 def test_rule_template_upsert_and_selection(isolated_model_control_storage):

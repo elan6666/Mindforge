@@ -8,6 +8,18 @@ frontend/*.js
 frontend/*.d.ts
 app/data/*.db
 
+# 本地模型/API 配置和密钥，不能进入仓库。
+app/model_control/provider_secrets.json
+app/model_control/*.local.json
+app/model_control/*_local.json
+
+# 本地规划草稿和临时工作区，不提交到远端。
+.planning/quick/
+.planning/workspaces/
+.planning/local/
+*.local.md
+*.draft.md
+
 output/
 tmp/
 

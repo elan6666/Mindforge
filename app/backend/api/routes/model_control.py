@@ -3,9 +3,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.backend.schemas.model import (
+    ModelCreateRequest,
     ModelControlUpdate,
     ModelSummary,
     ProviderConnectionTestResult,
+    ProviderCreateRequest,
     ProviderControlUpdate,
     ProviderSummary,
 )
@@ -32,6 +34,30 @@ def list_editable_models(
     return service.list_models()
 
 
+@router.get("/user-models", response_model=list[ModelSummary])
+def list_user_models(
+    service: ModelControlService = Depends(get_model_control_service),
+) -> list[ModelSummary]:
+    """Return user-created models for the control center."""
+    return service.list_custom_models()
+
+
+@router.post(
+    "/models",
+    response_model=ModelSummary,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_editable_model(
+    payload: ModelCreateRequest,
+    service: ModelControlService = Depends(get_model_control_service),
+) -> ModelSummary:
+    """Create a user-managed model."""
+    try:
+        return service.create_model(payload)
+    except ModelControlError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 @router.put("/models/{model_id}", response_model=ModelSummary)
 def update_editable_model(
     model_id: str,
@@ -45,12 +71,49 @@ def update_editable_model(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+@router.delete("/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_editable_model(
+    model_id: str,
+    service: ModelControlService = Depends(get_model_control_service),
+) -> Response:
+    """Delete a user-managed model."""
+    try:
+        service.delete_model(model_id)
+    except ModelControlError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/providers", response_model=list[ProviderSummary])
 def list_editable_providers(
     service: ModelControlService = Depends(get_model_control_service),
 ) -> list[ProviderSummary]:
     """Return current editable provider state."""
     return service.list_providers()
+
+
+@router.get("/user-providers", response_model=list[ProviderSummary])
+def list_user_providers(
+    service: ModelControlService = Depends(get_model_control_service),
+) -> list[ProviderSummary]:
+    """Return user-created providers for the API management UI."""
+    return service.list_custom_providers()
+
+
+@router.post(
+    "/providers",
+    response_model=ProviderSummary,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_editable_provider(
+    payload: ProviderCreateRequest,
+    service: ModelControlService = Depends(get_model_control_service),
+) -> ProviderSummary:
+    """Create a user-managed provider."""
+    try:
+        return service.create_provider(payload)
+    except ModelControlError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.put("/providers/{provider_id}", response_model=ProviderSummary)
@@ -64,6 +127,19 @@ def update_editable_provider(
         return service.update_provider(provider_id, payload)
     except ModelControlError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.delete("/providers/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_editable_provider(
+    provider_id: str,
+    service: ModelControlService = Depends(get_model_control_service),
+) -> Response:
+    """Delete a user-managed provider."""
+    try:
+        service.delete_provider(provider_id)
+    except ModelControlError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/providers/{provider_id}/test", response_model=ProviderConnectionTestResult)

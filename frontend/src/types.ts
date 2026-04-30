@@ -16,13 +16,29 @@ export type ProviderSummary = {
   api_key_env?: string | null;
   api_key_configured?: boolean;
   anthropic_api_base_url?: string | null;
+  is_custom?: boolean;
 };
 
 export type ProviderControlUpdate = {
+  display_name?: string | null;
+  description?: string | null;
   enabled?: boolean;
   api_base_url?: string | null;
   protocol?: string | null;
   api_key_env?: string | null;
+  api_key?: string | null;
+  anthropic_api_base_url?: string | null;
+};
+
+export type ProviderCreateRequest = {
+  provider_id: string;
+  display_name: string;
+  description?: string;
+  enabled: boolean;
+  api_base_url?: string | null;
+  protocol?: string | null;
+  api_key_env?: string | null;
+  api_key?: string | null;
   anthropic_api_base_url?: string | null;
 };
 
@@ -48,11 +64,30 @@ export type ModelSummary = {
   supported_preset_modes: string[];
   supported_task_types: string[];
   supported_roles: string[];
+  is_custom?: boolean;
 };
 
 export type ModelControlUpdate = {
+  display_name?: string | null;
+  provider_id?: string | null;
+  upstream_model?: string | null;
   priority?: "high" | "medium" | "low" | "disabled";
   enabled?: boolean;
+  supported_preset_modes?: string[];
+  supported_task_types?: string[];
+  supported_roles?: string[];
+};
+
+export type ModelCreateRequest = {
+  model_id: string;
+  display_name: string;
+  provider_id: string;
+  upstream_model: string;
+  priority: "high" | "medium" | "low" | "disabled";
+  enabled: boolean;
+  supported_preset_modes: string[];
+  supported_task_types: string[];
+  supported_roles: string[];
 };
 
 export type RuleAssignment = {

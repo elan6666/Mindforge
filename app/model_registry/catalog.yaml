@@ -1,22 +1,22 @@
 providers:
   - provider_id: openai
     display_name: OpenAI
-    description: GPT-class models used for planning and content-heavy reasoning.
+    description: 用于规划和复杂内容推理的 GPT 系列模型。
     enabled: true
     api_base_url: https://api.openai.com/v1
   - provider_id: moonshot
     display_name: Moonshot AI
-    description: Kimi-family models used for writing and stylistic assistance.
+    description: 用于写作和文风辅助的 Kimi 系列模型。
     enabled: true
     api_base_url: https://api.moonshot.cn/v1
   - provider_id: zhipu
     display_name: Zhipu AI
-    description: GLM-family models used for review and secondary analysis.
+    description: 用于审查和二次分析的 GLM 系列模型。
     enabled: true
     api_base_url: https://open.bigmodel.cn/api/paas/v4
   - provider_id: volces-ark
     display_name: Volces Ark
-    description: Doubao models exposed through the Ark OpenAI-compatible coding endpoint.
+    description: 通过 Ark OpenAI-compatible coding endpoint 暴露的豆包模型。
     enabled: true
     api_base_url: https://ark.cn-beijing.volces.com/api/coding/v3
     metadata:

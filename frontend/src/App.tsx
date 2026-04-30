@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   approveTask,
+  createModelControl,
+  createProviderControl,
   createRuleTemplate,
+  deleteModelControl,
+  deleteProviderControl,
   deleteRuleTemplate,
   fetchEditableModels,
   fetchHistoryTasks,
+  fetchModels,
   fetchPendingApprovals,
   fetchPresets,
-  fetchProviders,
+  fetchUserProviders,
   fetchRuleTemplates,
   fetchTaskHistoryDetail,
   getApiBaseUrl,
@@ -20,7 +25,9 @@ import {
 } from "./lib/api";
 import type {
   ApprovalRecord,
+  ModelCreateRequest,
   ModelSummary,
+  ProviderCreateRequest,
   PresetSummary,
   ProviderSummary,
   RuleAssignment,
@@ -41,6 +48,51 @@ type PanelTab =
 type AppView = "workspace" | "models" | "rules";
 type HistoryFilter = "all" | "completed" | "pending_approval" | "failed" | "rejected";
 type ProviderTestMessage = { status: "success" | "error"; text: string };
+type PresetFieldConfig = {
+  showRepoPath: boolean;
+  showGitHub: boolean;
+  showAcademic: boolean;
+  showApproval: boolean;
+  taskTypes: string[];
+};
+
+const PRESET_FIELD_CONFIGS: Record<string, PresetFieldConfig> = {
+  default: {
+    showRepoPath: false,
+    showGitHub: false,
+    showAcademic: false,
+    showApproval: true,
+    taskTypes: ["", "planning", "writing", "review"],
+  },
+  "code-engineering": {
+    showRepoPath: true,
+    showGitHub: true,
+    showAcademic: false,
+    showApproval: true,
+    taskTypes: ["", "planning", "review"],
+  },
+  "code-review": {
+    showRepoPath: true,
+    showGitHub: true,
+    showAcademic: false,
+    showApproval: true,
+    taskTypes: ["", "review"],
+  },
+  "doc-organize": {
+    showRepoPath: true,
+    showGitHub: false,
+    showAcademic: false,
+    showApproval: true,
+    taskTypes: ["", "writing", "review"],
+  },
+  "paper-revision": {
+    showRepoPath: false,
+    showGitHub: false,
+    showAcademic: true,
+    showApproval: false,
+    taskTypes: ["", "writing", "review"],
+  },
+};
 
 const NAV_ITEMS: Array<{
   id: string;
@@ -48,39 +100,119 @@ const NAV_ITEMS: Array<{
   hint: string;
   view: AppView;
 }> = [
-  { id: "new-task", label: "New Task", hint: "Create", view: "workspace" },
-  { id: "history", label: "History", hint: "Recent", view: "workspace" },
-  { id: "projects", label: "Workspace", hint: "Shell", view: "workspace" },
-  { id: "presets", label: "Templates", hint: "Rules", view: "rules" },
-  { id: "settings", label: "Models", hint: "Control", view: "models" },
+  { id: "new-task", label: "新任务", hint: "创建", view: "workspace" },
+  { id: "history", label: "历史", hint: "最近", view: "workspace" },
+  { id: "projects", label: "工作台", hint: "空间", view: "workspace" },
+  { id: "presets", label: "模板", hint: "规则", view: "rules" },
+  { id: "settings", label: "模型", hint: "控制", view: "models" },
 ];
 
 const TASK_TYPE_OPTIONS = [
-  { value: "", label: "Auto" },
-  { value: "planning", label: "Planning" },
-  { value: "writing", label: "Writing" },
-  { value: "review", label: "Review" },
+  { value: "", label: "自动" },
+  { value: "planning", label: "规划" },
+  { value: "writing", label: "写作" },
+  { value: "review", label: "审查" },
 ];
 
 const HISTORY_FILTERS: Array<{ value: HistoryFilter; label: string }> = [
-  { value: "all", label: "All" },
-  { value: "pending_approval", label: "Pending" },
-  { value: "completed", label: "Completed" },
-  { value: "failed", label: "Failed" },
-  { value: "rejected", label: "Rejected" },
+  { value: "all", label: "全部" },
+  { value: "pending_approval", label: "待审批" },
+  { value: "completed", label: "已完成" },
+  { value: "failed", label: "失败" },
+  { value: "rejected", label: "已拒绝" },
 ];
+
+const TAB_LABELS: Record<PanelTab, string> = {
+  output: "输出",
+  stages: "阶段",
+  repo: "仓库",
+  github: "GitHub",
+  academic: "论文",
+  approval: "审批",
+  metadata: "元数据",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  completed: "已完成",
+  pending: "待处理",
+  pending_approval: "待审批",
+  failed: "失败",
+  rejected: "已拒绝",
+  approved: "已批准",
+  open: "开放",
+  closed: "已关闭",
+  connected: "已连接",
+  missing_api_key: "缺少 API key",
+  skipped: "已跳过",
+  fetched: "已获取",
+  idle: "空闲",
+};
+
+const PRIORITY_LABELS: Record<ModelSummary["priority"], string> = {
+  high: "高",
+  medium: "中",
+  low: "低",
+  disabled: "禁用",
+};
+
+const RISK_LABELS: Record<string, string> = {
+  low: "低风险",
+  medium: "中风险",
+  high: "高风险",
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  coordinator: "协调者",
+  "project-manager": "项目经理",
+  backend: "后端工程师",
+  frontend: "前端工程师",
+  reviewer: "审查者",
+  "security-reviewer": "安全审查者",
+  documenter: "文档整理者",
+  editor: "编辑",
+  "standards-editor": "标准分析员",
+  reviser: "论文修改员",
+  "style-reviewer": "文风审稿人",
+  "content-reviewer": "内容审稿人",
+  "final-reviewer": "终审审稿人",
+  "new-role": "新角色",
+  "Project manager": "项目经理",
+};
+
+function formatStatus(value?: string | null): string {
+  if (!value) return "-";
+  return STATUS_LABELS[value] || value;
+}
+
+function formatRisk(value?: string | null): string {
+  if (!value) return "-";
+  return RISK_LABELS[value] || value;
+}
+
+function formatRole(value?: string | null): string {
+  if (!value) return "-";
+  return ROLE_LABELS[value] || value;
+}
+
+function formatProviderTestText(status: string, detail: string): string {
+  const detailLabels: Record<string, string> = {
+    "Connection OK": "连接正常",
+    "Environment variable 'ARK_API_KEY' is not set.": "环境变量 ARK_API_KEY 未设置。",
+  };
+  return `${formatStatus(status)}：${detailLabels[detail] || detail}`;
+}
 
 function formatTitle(prompt: string): string {
   const trimmed = prompt.trim();
-  if (!trimmed) return "Untitled task";
+  if (!trimmed) return "未命名任务";
   return trimmed.length > 30 ? `${trimmed.slice(0, 30)}...` : trimmed;
 }
 
 function createEmptyTemplate(presetMode = "code-engineering"): RuleTemplateSummary {
   return {
     template_id: "new-template",
-    display_name: "New Template",
-    description: "Describe what this template is for.",
+    display_name: "新规则模板",
+    description: "说明这个规则模板适合什么任务。",
     preset_mode: presetMode,
     task_types: [],
     default_coordinator_model_id: "gpt-5.4",
@@ -90,7 +222,7 @@ function createEmptyTemplate(presetMode = "code-engineering"): RuleTemplateSumma
     assignments: [
       {
         role: "project-manager",
-        responsibility: "Primary planning responsibility",
+        responsibility: "负责主要规划和任务拆解",
         model_id: "gpt-5.4",
       },
     ],
@@ -100,7 +232,7 @@ function createEmptyTemplate(presetMode = "code-engineering"): RuleTemplateSumma
 
 function formatDate(value?: string | null): string {
   if (!value) return "-";
-  return new Date(value).toLocaleString();
+  return new Date(value).toLocaleString("zh-CN");
 }
 
 function parseUrlList(value: string): string[] {
@@ -115,6 +247,45 @@ function optionalText(value?: string | null): string | null {
   return trimmed ? trimmed : null;
 }
 
+function splitCommaList(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function presetFieldConfig(presetMode: string): PresetFieldConfig {
+  return PRESET_FIELD_CONFIGS[presetMode] || PRESET_FIELD_CONFIGS.default;
+}
+
+function createEmptyProviderDraft(): ProviderCreateRequest {
+  return {
+    provider_id: "",
+    display_name: "",
+    description: "",
+    enabled: true,
+    api_base_url: "",
+    protocol: "openai-compatible",
+    api_key_env: "",
+    api_key: "",
+    anthropic_api_base_url: "",
+  };
+}
+
+function createEmptyModelDraft(providerId = ""): ModelCreateRequest {
+  return {
+    model_id: "",
+    display_name: "",
+    provider_id: providerId,
+    upstream_model: "",
+    priority: "medium",
+    enabled: true,
+    supported_preset_modes: [],
+    supported_task_types: [],
+    supported_roles: [],
+  };
+}
+
 export function App() {
   const [view, setView] = useState<AppView>("workspace");
   const [activeNavId, setActiveNavId] = useState("new-task");
@@ -123,6 +294,7 @@ export function App() {
   const [presets, setPresets] = useState<PresetSummary[]>([]);
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [models, setModels] = useState<ModelSummary[]>([]);
+  const [customModels, setCustomModels] = useState<ModelSummary[]>([]);
   const [ruleTemplates, setRuleTemplates] = useState<RuleTemplateSummary[]>([]);
   const [historyItems, setHistoryItems] = useState<TaskHistorySummary[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<ApprovalRecord[]>([]);
@@ -142,7 +314,7 @@ export function App() {
   const [journalUrl, setJournalUrl] = useState("");
   const [referencePaperUrls, setReferencePaperUrls] = useState("");
   const [requiresApproval, setRequiresApproval] = useState(false);
-  const [approvalActions, setApprovalActions] = useState("write files");
+  const [approvalActions, setApprovalActions] = useState("写入文件");
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -154,6 +326,16 @@ export function App() {
     Record<string, ProviderTestMessage>
   >({});
   const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
+  const [providerApiKeys, setProviderApiKeys] = useState<Record<string, string>>({});
+  const [newProvider, setNewProvider] = useState<ProviderCreateRequest>(() =>
+    createEmptyProviderDraft(),
+  );
+  const [newModel, setNewModel] = useState<ModelCreateRequest>(() =>
+    createEmptyModelDraft(),
+  );
+  const [newModelPresetScope, setNewModelPresetScope] = useState("");
+  const [newModelTaskScope, setNewModelTaskScope] = useState("");
+  const [newModelRoleScope, setNewModelRoleScope] = useState("");
 
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [templateDraft, setTemplateDraft] = useState<RuleTemplateSummary>(() =>
@@ -190,6 +372,10 @@ export function App() {
       ),
     [presetMode, ruleTemplates, taskType],
   );
+  const selectedPresetFields = presetFieldConfig(presetMode);
+  const visibleTaskTypeOptions = TASK_TYPE_OPTIONS.filter((option) =>
+    selectedPresetFields.taskTypes.includes(option.value),
+  );
 
   async function refreshHistory(nextActiveTaskId?: string | null) {
     const statusQuery = historyFilter === "all" ? undefined : historyFilter;
@@ -216,20 +402,22 @@ export function App() {
 
   async function loadBootstrap() {
     let providerLoadError: string | null = null;
-    const providerDataPromise = fetchProviders().catch((error) => {
+    const providerDataPromise = fetchUserProviders().catch((error) => {
       providerLoadError =
-        error instanceof Error ? error.message : "Failed to load provider controls.";
+        error instanceof Error ? error.message : "加载模型服务商控制数据失败。";
       return [] as ProviderSummary[];
     });
-    const [presetData, providerData, modelData, templateData] = await Promise.all([
+    const [presetData, providerData, runtimeModelData, customModelData, templateData] = await Promise.all([
       fetchPresets(),
       providerDataPromise,
+      fetchModels(),
       fetchEditableModels(),
       fetchRuleTemplates(),
     ]);
     setPresets(presetData);
     setProviders(providerData);
-    setModels(modelData);
+    setModels(runtimeModelData);
+    setCustomModels(customModelData);
     setRuleTemplates(templateData);
     setLoadError(providerLoadError);
     if (!selectedTemplateId && templateData.length > 0) {
@@ -247,7 +435,7 @@ export function App() {
         await loadBootstrap();
       } catch (error) {
         if (cancelled) return;
-        setLoadError(error instanceof Error ? error.message : "Failed to load bootstrap data.");
+        setLoadError(error instanceof Error ? error.message : "加载初始化数据失败。");
       }
     }
     run();
@@ -263,7 +451,7 @@ export function App() {
         await refreshHistory();
       } catch (error) {
         if (cancelled) return;
-        setLoadError(error instanceof Error ? error.message : "Failed to load history.");
+        setLoadError(error instanceof Error ? error.message : "加载历史记录失败。");
       }
     }
     run();
@@ -277,6 +465,29 @@ export function App() {
       setRuleTemplateId("");
     }
   }, [filteredTemplates, ruleTemplateId]);
+
+  useEffect(() => {
+    const config = presetFieldConfig(presetMode);
+    if (!config.taskTypes.includes(taskType)) {
+      setTaskType("");
+    }
+    if (!config.showRepoPath) {
+      setRepoPath("");
+    }
+    if (!config.showGitHub) {
+      setGitHubRepo("");
+      setGitHubIssueNumber("");
+      setGitHubPrNumber("");
+    }
+    if (!config.showAcademic) {
+      setJournalName("");
+      setJournalUrl("");
+      setReferencePaperUrls("");
+    }
+    if (!config.showApproval) {
+      setRequiresApproval(false);
+    }
+  }, [presetMode, taskType]);
 
   function handleNavClick(navId: string, targetView: AppView) {
     setActiveNavId(navId);
@@ -296,14 +507,15 @@ export function App() {
 
   async function handleSubmit() {
     if (!prompt.trim()) {
-      setSubmitError("Please enter a task prompt.");
+      setSubmitError("请输入任务描述。");
       return;
     }
     setIsSubmitting(true);
     setSubmitError(null);
     try {
       const metadata: Record<string, unknown> = {};
-      if (requiresApproval) {
+      const fieldConfig = presetFieldConfig(presetMode);
+      if (fieldConfig.showApproval && requiresApproval) {
         metadata.requires_approval = true;
         metadata.approval_actions = approvalActions
           .split(",")
@@ -314,16 +526,24 @@ export function App() {
       const result = await submitTask({
         prompt,
         preset_mode: presetMode,
-        repo_path: repoPath || undefined,
+        repo_path: fieldConfig.showRepoPath ? repoPath || undefined : undefined,
         task_type: taskType || undefined,
         model_override: modelOverride || undefined,
         rule_template_id: ruleTemplateId || undefined,
-        github_repo: githubRepo || undefined,
-        github_issue_number: githubIssueNumber ? Number(githubIssueNumber) : undefined,
-        github_pr_number: githubPrNumber ? Number(githubPrNumber) : undefined,
-        journal_name: journalName || undefined,
-        journal_url: journalUrl || undefined,
-        reference_paper_urls: parseUrlList(referencePaperUrls),
+        github_repo: fieldConfig.showGitHub ? githubRepo || undefined : undefined,
+        github_issue_number:
+          fieldConfig.showGitHub && githubIssueNumber
+            ? Number(githubIssueNumber)
+            : undefined,
+        github_pr_number:
+          fieldConfig.showGitHub && githubPrNumber
+            ? Number(githubPrNumber)
+            : undefined,
+        journal_name: fieldConfig.showAcademic ? journalName || undefined : undefined,
+        journal_url: fieldConfig.showAcademic ? journalUrl || undefined : undefined,
+        reference_paper_urls: fieldConfig.showAcademic
+          ? parseUrlList(referencePaperUrls)
+          : [],
         metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
       });
       const taskId = result.data.metadata.task_id;
@@ -331,7 +551,7 @@ export function App() {
       setActiveTab(result.status === "pending_approval" ? "approval" : "output");
       setSubmitError(null);
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : "Task submission failed.");
+      setSubmitError(error instanceof Error ? error.message : "任务提交失败。");
     } finally {
       setIsSubmitting(false);
     }
@@ -341,14 +561,14 @@ export function App() {
     if (!activeTaskId) return;
     try {
       if (action === "approve") {
-        await approveTask(activeTaskId, "Approved from workspace");
+        await approveTask(activeTaskId, "从工作台批准。");
       } else {
-        await rejectTask(activeTaskId, "Rejected from workspace");
+        await rejectTask(activeTaskId, "从工作台拒绝。");
       }
       await refreshHistory(activeTaskId);
       setActiveTab("approval");
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : "Approval request failed.");
+      setSubmitError(error instanceof Error ? error.message : "审批请求失败。");
     }
   }
 
@@ -358,14 +578,58 @@ export function App() {
         priority: model.priority,
         enabled: model.enabled,
       });
-      setModels((previous) =>
+      setCustomModels((previous) =>
         previous.map((item) => (item.model_id === updated.model_id ? updated : item)),
       );
+      setModels(await fetchModels());
       setSettingsError(null);
-      setSettingsMessage(`Saved model ${updated.display_name}.`);
+      setSettingsMessage(`已保存模型 ${updated.display_name}。`);
     } catch (error) {
       setSettingsMessage(null);
-      setSettingsError(error instanceof Error ? error.message : "Model update failed.");
+      setSettingsError(error instanceof Error ? error.message : "模型更新失败。");
+    }
+  }
+
+  async function handleCreateModel() {
+    try {
+      if (!providers.length) {
+        setSettingsMessage(null);
+        setSettingsError("请先在 API 管理里添加一个模型服务商。");
+        return;
+      }
+      const created = await createModelControl({
+        ...newModel,
+        provider_id: newModel.provider_id || providers[0].provider_id,
+        supported_preset_modes: splitCommaList(newModelPresetScope),
+        supported_task_types: splitCommaList(newModelTaskScope),
+        supported_roles: splitCommaList(newModelRoleScope),
+      });
+      setCustomModels((previous) => [...previous, created]);
+      setModels(await fetchModels());
+      setNewModel(createEmptyModelDraft(providers[0]?.provider_id || ""));
+      setNewModelPresetScope("");
+      setNewModelTaskScope("");
+      setNewModelRoleScope("");
+      setSettingsError(null);
+      setSettingsMessage(`已添加模型 ${created.display_name}。`);
+    } catch (error) {
+      setSettingsMessage(null);
+      setSettingsError(error instanceof Error ? error.message : "模型添加失败。");
+    }
+  }
+
+  async function handleDeleteModel(model: ModelSummary) {
+    try {
+      await deleteModelControl(model.model_id);
+      setCustomModels((previous) =>
+        previous.filter((item) => item.model_id !== model.model_id),
+      );
+      setModels(await fetchModels());
+      setSettingsError(null);
+      setSettingsMessage(`已删除模型 ${model.display_name}。`);
+    } catch (error) {
+      setSettingsMessage(null);
+      setSettingsError(error instanceof Error ? error.message : "模型删除失败。");
     }
   }
 
@@ -379,21 +643,66 @@ export function App() {
 
   async function handleProviderSave(provider: ProviderSummary) {
     try {
+      const apiKey = providerApiKeys[provider.provider_id]?.trim();
       const updated = await updateProviderControl(provider.provider_id, {
+        display_name: optionalText(provider.display_name),
+        description: optionalText(provider.description),
         enabled: provider.enabled,
         api_base_url: optionalText(provider.api_base_url),
         protocol: optionalText(provider.protocol),
         api_key_env: optionalText(provider.api_key_env),
+        ...(apiKey ? { api_key: apiKey } : {}),
         anthropic_api_base_url: optionalText(provider.anthropic_api_base_url),
       });
       setProviders((previous) =>
         previous.map((item) => (item.provider_id === updated.provider_id ? updated : item)),
       );
+      setProviderApiKeys((previous) => ({ ...previous, [provider.provider_id]: "" }));
       setSettingsError(null);
-      setSettingsMessage(`Saved provider ${updated.display_name}.`);
+      setSettingsMessage(`已保存模型服务商 ${updated.display_name}。`);
     } catch (error) {
       setSettingsMessage(null);
-      setSettingsError(error instanceof Error ? error.message : "Provider update failed.");
+      setSettingsError(error instanceof Error ? error.message : "模型服务商更新失败。");
+    }
+  }
+
+  async function handleCreateProvider() {
+    try {
+      const created = await createProviderControl({
+        ...newProvider,
+        api_base_url: optionalText(newProvider.api_base_url),
+        api_key_env: optionalText(newProvider.api_key_env),
+        api_key: optionalText(newProvider.api_key),
+        protocol: optionalText(newProvider.protocol) || "openai-compatible",
+        anthropic_api_base_url: optionalText(newProvider.anthropic_api_base_url),
+      });
+      setProviders((previous) => [...previous, created]);
+      setNewProvider(createEmptyProviderDraft());
+      if (!newModel.provider_id) {
+        setNewModel((current) => ({ ...current, provider_id: created.provider_id }));
+      }
+      setModels(await fetchModels());
+      setSettingsError(null);
+      setSettingsMessage(`已添加模型服务商 ${created.display_name}。`);
+    } catch (error) {
+      setSettingsMessage(null);
+      setSettingsError(error instanceof Error ? error.message : "模型服务商添加失败。");
+    }
+  }
+
+  async function handleDeleteProvider(provider: ProviderSummary) {
+    try {
+      await deleteProviderControl(provider.provider_id);
+      setProviders((previous) =>
+        previous.filter((item) => item.provider_id !== provider.provider_id),
+      );
+      setCustomModels(await fetchEditableModels());
+      setModels(await fetchModels());
+      setSettingsError(null);
+      setSettingsMessage(`已删除模型服务商 ${provider.display_name}。`);
+    } catch (error) {
+      setSettingsMessage(null);
+      setSettingsError(error instanceof Error ? error.message : "模型服务商删除失败。");
     }
   }
 
@@ -406,7 +715,7 @@ export function App() {
     });
     try {
       const result = await testProviderConnection(provider.provider_id);
-      const message = `${result.status}: ${result.detail}`;
+      const message = formatProviderTestText(result.status, result.detail);
       setProviderTestMessages((previous) => ({
         ...previous,
         [provider.provider_id]: {
@@ -419,7 +728,7 @@ export function App() {
         ...previous,
         [provider.provider_id]: {
           status: "error",
-          text: error instanceof Error ? error.message : "Connection test failed.",
+          text: error instanceof Error ? error.message : "连接测试失败。",
         },
       }));
     } finally {
@@ -470,10 +779,10 @@ export function App() {
       setEditingTemplateId(saved.template_id);
       setTemplateDraft(saved);
       setSettingsError(null);
-      setSettingsMessage(`Saved template ${saved.display_name}.`);
+      setSettingsMessage(`已保存模板 ${saved.display_name}。`);
     } catch (error) {
       setSettingsMessage(null);
-      setSettingsError(error instanceof Error ? error.message : "Template save failed.");
+      setSettingsError(error instanceof Error ? error.message : "模板保存失败。");
     }
   }
 
@@ -489,10 +798,10 @@ export function App() {
         handleCreateTemplate();
       }
       setSettingsError(null);
-      setSettingsMessage("Deleted template.");
+      setSettingsMessage("已删除模板。");
     } catch (error) {
       setSettingsMessage(null);
-      setSettingsError(error instanceof Error ? error.message : "Template delete failed.");
+      setSettingsError(error instanceof Error ? error.message : "模板删除失败。");
     }
   }
 
@@ -504,7 +813,7 @@ export function App() {
             <input
               type="text"
               value={assignment.role}
-              placeholder="role"
+              placeholder="角色"
               onChange={(event) =>
                 updateTemplateDraft((current) => ({
                   ...current,
@@ -517,7 +826,7 @@ export function App() {
             <input
               type="text"
               value={assignment.responsibility}
-              placeholder="responsibility"
+              placeholder="职责"
               onChange={(event) =>
                 updateTemplateDraft((current) => ({
                   ...current,
@@ -556,7 +865,7 @@ export function App() {
                 }))
               }
             >
-              Delete
+              删除
             </button>
           </div>
         ))}
@@ -576,12 +885,12 @@ export function App() {
         <section className="chat-column">
           <div className="panel panel-intro">
             <div className="panel-title-row">
-              <h2>Task Workspace</h2>
-              <span className="subtle">New request</span>
+              <h2>任务工作台</h2>
+              <span className="subtle">新请求</span>
             </div>
             <div className="control-grid">
               <label>
-                <span>Preset</span>
+                <span>预设模式</span>
                 <select value={presetMode} onChange={(event) => setPresetMode(event.target.value)}>
                   {presets.map((preset) => (
                     <option key={preset.preset_mode} value={preset.preset_mode}>
@@ -591,31 +900,33 @@ export function App() {
                 </select>
               </label>
               <label>
-                <span>Task Type</span>
+                <span>任务类型</span>
                 <select value={taskType} onChange={(event) => setTaskType(event.target.value)}>
-                  {TASK_TYPE_OPTIONS.map((option) => (
+                  {visibleTaskTypeOptions.map((option) => (
                     <option key={option.value || "auto"} value={option.value}>
                       {option.label}
                     </option>
                   ))}
                 </select>
               </label>
+              {selectedPresetFields.showRepoPath && (
+                <label>
+                  <span>仓库路径</span>
+                  <input
+                    type="text"
+                    placeholder="E:\\CODE\\project or ."
+                    value={repoPath}
+                    onChange={(event) => setRepoPath(event.target.value)}
+                  />
+                </label>
+              )}
               <label>
-                <span>Repository Path</span>
-                <input
-                  type="text"
-                  placeholder="E:\\CODE\\project or ."
-                  value={repoPath}
-                  onChange={(event) => setRepoPath(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>Coordinator Model</span>
+                <span>协调模型</span>
                 <select
                   value={modelOverride}
                   onChange={(event) => setModelOverride(event.target.value)}
                 >
-                  <option value="">Auto select</option>
+                  <option value="">自动选择</option>
                   {models
                     .filter((item) => item.enabled && item.priority !== "disabled")
                     .map((model) => (
@@ -626,12 +937,12 @@ export function App() {
                 </select>
               </label>
               <label className="full-width">
-                <span>Rule Template</span>
+                <span>规则模板</span>
                 <select
                   value={ruleTemplateId}
                   onChange={(event) => setRuleTemplateId(event.target.value)}
                 >
-                  <option value="">Auto select</option>
+                  <option value="">自动选择</option>
                   {filteredTemplates.map((template) => (
                     <option key={template.template_id} value={template.template_id}>
                       {template.display_name}
@@ -639,75 +950,85 @@ export function App() {
                   ))}
                 </select>
               </label>
-              <label>
-                <span>GitHub Repo</span>
-                <input
-                  type="text"
-                  placeholder="owner/repo"
-                  value={githubRepo}
-                  onChange={(event) => setGitHubRepo(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>Issue Number</span>
-                <input
-                  type="number"
-                  min="1"
-                  placeholder="Optional"
-                  value={githubIssueNumber}
-                  onChange={(event) => setGitHubIssueNumber(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>PR Number</span>
-                <input
-                  type="number"
-                  min="1"
-                  placeholder="Optional"
-                  value={githubPrNumber}
-                  onChange={(event) => setGitHubPrNumber(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>Journal Name</span>
-                <input
-                  type="text"
-                  placeholder="Nature, IEEE TSE..."
-                  value={journalName}
-                  onChange={(event) => setJournalName(event.target.value)}
-                />
-              </label>
-              <label className="full-width">
-                <span>Journal Guidelines URL</span>
-                <input
-                  type="url"
-                  placeholder="https://journal.example.com/for-authors"
-                  value={journalUrl}
-                  onChange={(event) => setJournalUrl(event.target.value)}
-                />
-              </label>
-              <label className="full-width">
-                <span>Reference Paper URLs</span>
-                <textarea
-                  value={referencePaperUrls}
-                  onChange={(event) => setReferencePaperUrls(event.target.value)}
-                  placeholder="One URL per line, or comma-separated."
-                />
-              </label>
-              <label className="toggle-row full-width">
-                <span>Require approval before execution</span>
-                <input
-                  type="checkbox"
-                  checked={requiresApproval}
-                  onChange={(event) => setRequiresApproval(event.target.checked)}
-                />
-              </label>
-              {requiresApproval && (
+              {selectedPresetFields.showGitHub && (
+                <>
+                  <label>
+                    <span>GitHub 仓库</span>
+                    <input
+                      type="text"
+                      placeholder="owner/repo"
+                      value={githubRepo}
+                      onChange={(event) => setGitHubRepo(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Issue 编号</span>
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="可选"
+                      value={githubIssueNumber}
+                      onChange={(event) => setGitHubIssueNumber(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>PR 编号</span>
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="可选"
+                      value={githubPrNumber}
+                      onChange={(event) => setGitHubPrNumber(event.target.value)}
+                    />
+                  </label>
+                </>
+              )}
+              {selectedPresetFields.showAcademic && (
+                <>
+                  <label>
+                    <span>期刊名称</span>
+                    <input
+                      type="text"
+                      placeholder="Nature, IEEE TSE..."
+                      value={journalName}
+                      onChange={(event) => setJournalName(event.target.value)}
+                    />
+                  </label>
+                  <label className="full-width">
+                    <span>期刊投稿指南 URL</span>
+                    <input
+                      type="url"
+                      placeholder="https://journal.example.com/for-authors"
+                      value={journalUrl}
+                      onChange={(event) => setJournalUrl(event.target.value)}
+                    />
+                  </label>
+                  <label className="full-width">
+                    <span>参考论文 URL</span>
+                    <textarea
+                      value={referencePaperUrls}
+                      onChange={(event) => setReferencePaperUrls(event.target.value)}
+                      placeholder="每行一个 URL，也可以用英文逗号分隔。"
+                    />
+                  </label>
+                </>
+              )}
+              {selectedPresetFields.showApproval && (
+                <label className="toggle-row full-width">
+                  <span>执行前需要审批</span>
+                  <input
+                    type="checkbox"
+                    checked={requiresApproval}
+                    onChange={(event) => setRequiresApproval(event.target.checked)}
+                  />
+                </label>
+              )}
+              {selectedPresetFields.showApproval && requiresApproval && (
                 <label className="full-width">
-                  <span>High-risk actions</span>
+                  <span>高风险动作</span>
                   <input
                     type="text"
-                    placeholder="write files, execute shell"
+                    placeholder="写入文件，执行命令"
                     value={approvalActions}
                     onChange={(event) => setApprovalActions(event.target.value)}
                   />
@@ -716,19 +1037,19 @@ export function App() {
             </div>
 
             <label className="prompt-field">
-              <span>Prompt</span>
+              <span>任务描述</span>
               <textarea
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
-                placeholder="Describe the task for Mindforge."
+                placeholder="描述你希望 Mindforge 完成的任务。"
               />
             </label>
             <div className="action-row">
               <button type="button" className="primary-button" onClick={handleSubmit} disabled={isSubmitting}>
-                {isSubmitting ? "Submitting..." : "Submit task"}
+                {isSubmitting ? "提交中..." : "提交任务"}
               </button>
               <div className="subtle">
-                APIs: /api/tasks, /api/history/tasks, /api/approvals/pending
+                接口：/api/tasks, /api/history/tasks, /api/approvals/pending
               </div>
             </div>
             {loadError && <div className="message error">{loadError}</div>}
@@ -737,16 +1058,16 @@ export function App() {
 
           <div className="panel conversation-preview">
             <div className="panel-title-row">
-              <h2>Conversation Preview</h2>
+              <h2>对话预览</h2>
               <span className="subtle">
-                {activeTaskDetail ? formatTitle(activeTaskDetail.prompt) : "No task selected"}
+                {activeTaskDetail ? formatTitle(activeTaskDetail.prompt) : "未选择任务"}
               </span>
             </div>
             <div className="message-list">
               {activeTaskDetail ? (
                 <>
                   <div className="bubble user">
-                    <div className="bubble-role">User</div>
+                    <div className="bubble-role">用户</div>
                     <div>{activeTaskDetail.prompt}</div>
                   </div>
                   <div className="bubble assistant">
@@ -760,7 +1081,7 @@ export function App() {
                 </>
               ) : (
                 <div className="empty-hint">
-                  Select a task from history or submit a new one.
+                  从历史记录中选择任务，或提交一个新任务。
                 </div>
               )}
             </div>
@@ -770,9 +1091,9 @@ export function App() {
         <aside className="panel-column">
           <div className="panel tabs-panel">
             <div className="panel-title-row">
-              <h2>Task Detail</h2>
+              <h2>任务详情</h2>
               <span className="subtle">
-                {activeTaskDetail ? activeTaskDetail.status : "Idle"}
+                {activeTaskDetail ? formatStatus(activeTaskDetail.status) : "空闲"}
               </span>
             </div>
             <div className="tabs-row">
@@ -783,31 +1104,31 @@ export function App() {
                   className={`tab-button ${activeTab === tab ? "active" : ""}`}
                   onClick={() => setActiveTab(tab)}
                 >
-                  {tab}
+                  {TAB_LABELS[tab]}
                 </button>
               ))}
             </div>
 
             {activeTab === "output" && (
               <div className="panel-content">
-                <h3>Final Output</h3>
-                <pre>{activeResult?.data.output || "No output yet."}</pre>
+                <h3>最终输出</h3>
+                <pre>{activeResult?.data.output || "暂无输出。"}</pre>
               </div>
             )}
 
             {activeTab === "stages" && (
               <div className="panel-content">
-                <h3>Stage Trace</h3>
+                <h3>阶段轨迹</h3>
                 {activeTrace?.stages?.length ? (
                   <div className="stage-list">
                     {activeTrace.stages.map((stage) => (
                       <div key={stage.stage_id} className="stage-card">
                         <div className="stage-head">
-                          <strong>{stage.stage_name}</strong>
+                          <strong>{formatRole(stage.stage_name || stage.role)}</strong>
                           <span>{stage.model}</span>
                         </div>
                         <div className="stage-meta">
-                          <span>{stage.status}</span>
+                          <span>{formatStatus(stage.status)}</span>
                           <span>{stage.provider}</span>
                         </div>
                         <p>{stage.summary}</p>
@@ -815,19 +1136,19 @@ export function App() {
                     ))}
                   </div>
                 ) : (
-                  <div className="empty-hint">No stage data for this task.</div>
+                  <div className="empty-hint">该任务暂无阶段数据。</div>
                 )}
               </div>
             )}
 
             {activeTab === "repo" && (
               <div className="panel-content">
-                <h3>Repository Summary</h3>
+                <h3>仓库摘要</h3>
                 {activeRepo?.repo_summary ? (
                   <>
                     <p>{activeRepo.repo_summary.summary_text}</p>
                     <div className="info-block">
-                      <strong>Entrypoints</strong>
+                      <strong>入口文件</strong>
                       <ul>
                         {activeRepo.repo_summary.entrypoints.map((entry) => (
                           <li key={entry}>{entry}</li>
@@ -835,7 +1156,7 @@ export function App() {
                       </ul>
                     </div>
                     <div className="info-block">
-                      <strong>Detected Stack</strong>
+                      <strong>识别到的技术栈</strong>
                       <div className="provider-list">
                         {activeRepo.repo_summary.detected_stack.map((stack) => (
                           <span key={stack} className="pill">
@@ -846,14 +1167,14 @@ export function App() {
                     </div>
                   </>
                 ) : (
-                  <div className="empty-hint">No repository summary for this task.</div>
+                  <div className="empty-hint">该任务暂无仓库摘要。</div>
                 )}
               </div>
             )}
 
             {activeTab === "github" && (
               <div className="panel-content">
-                <h3>GitHub Context</h3>
+                <h3>GitHub 上下文</h3>
                 {activeGitHub ? (
                   <div className="stage-list">
                     {activeGitHub.repository && (
@@ -861,14 +1182,14 @@ export function App() {
                         <div className="stage-head">
                           <strong>{activeGitHub.repository.full_name}</strong>
                           <a href={activeGitHub.repository.html_url} target="_blank" rel="noreferrer">
-                            Open
+                            打开
                           </a>
                         </div>
                         <div className="stage-meta">
-                          <span>branch: {activeGitHub.repository.default_branch}</span>
-                          <span>language: {activeGitHub.repository.primary_language || "unknown"}</span>
+                          <span>分支：{activeGitHub.repository.default_branch}</span>
+                          <span>语言：{activeGitHub.repository.primary_language || "未知"}</span>
                         </div>
-                        <p>{activeGitHub.repository.description || "No repository description."}</p>
+                        <p>{activeGitHub.repository.description || "暂无仓库描述。"}</p>
                       </div>
                     )}
                     {activeGitHub.issue && (
@@ -876,12 +1197,12 @@ export function App() {
                         <div className="stage-head">
                           <strong>Issue #{activeGitHub.issue.number}</strong>
                           <a href={activeGitHub.issue.html_url} target="_blank" rel="noreferrer">
-                            Open
+                            打开
                           </a>
                         </div>
                         <div className="stage-meta">
-                          <span>{activeGitHub.issue.state}</span>
-                          <span>{activeGitHub.issue.author || "unknown"}</span>
+                          <span>{formatStatus(activeGitHub.issue.state)}</span>
+                          <span>{activeGitHub.issue.author || "未知"}</span>
                         </div>
                         <p>{activeGitHub.issue.title}</p>
                         {activeGitHub.issue.body_excerpt && <p>{activeGitHub.issue.body_excerpt}</p>}
@@ -892,11 +1213,11 @@ export function App() {
                         <div className="stage-head">
                           <strong>PR #{activeGitHub.pull_request.number}</strong>
                           <a href={activeGitHub.pull_request.html_url} target="_blank" rel="noreferrer">
-                            Open
+                            打开
                           </a>
                         </div>
                         <div className="stage-meta">
-                          <span>{activeGitHub.pull_request.state}</span>
+                          <span>{formatStatus(activeGitHub.pull_request.state)}</span>
                           <span>
                             {activeGitHub.pull_request.head_ref || "-"} → {activeGitHub.pull_request.base_ref || "-"}
                           </span>
@@ -909,21 +1230,21 @@ export function App() {
                     )}
                   </div>
                 ) : (
-                  <div className="empty-hint">No GitHub context for this task.</div>
+                  <div className="empty-hint">该任务暂无 GitHub 上下文。</div>
                 )}
               </div>
             )}
 
             {activeTab === "academic" && (
               <div className="panel-content">
-                <h3>Academic Context</h3>
+                <h3>论文上下文</h3>
                 {activeAcademic ? (
                   <div className="stage-list">
                     {activeAcademic.journal && (
                       <div className="stage-card">
                         <div className="stage-head">
-                          <strong>{activeAcademic.journal.journal_name || "Journal"}</strong>
-                          <span>{activeAcademic.journal.status}</span>
+                          <strong>{activeAcademic.journal.journal_name || "期刊"}</strong>
+                          <span>{formatStatus(activeAcademic.journal.status)}</span>
                         </div>
                         {activeAcademic.journal.journal_url && (
                           <a
@@ -931,7 +1252,7 @@ export function App() {
                             target="_blank"
                             rel="noreferrer"
                           >
-                            Open guidelines
+                            打开投稿指南
                           </a>
                         )}
                         {activeAcademic.journal.title && <p>{activeAcademic.journal.title}</p>}
@@ -943,8 +1264,8 @@ export function App() {
                     {activeAcademic.reference_papers.map((reference, index) => (
                       <div key={`${reference.url}-${index}`} className="stage-card">
                         <div className="stage-head">
-                          <strong>Reference paper {index + 1}</strong>
-                          <span>{reference.status}</span>
+                          <strong>参考论文 {index + 1}</strong>
+                          <span>{formatStatus(reference.status)}</span>
                         </div>
                         <a href={reference.url} target="_blank" rel="noreferrer">
                           {reference.title || reference.url}
@@ -959,23 +1280,23 @@ export function App() {
                     ))}
                   </div>
                 ) : (
-                  <div className="empty-hint">No academic context for this task.</div>
+                  <div className="empty-hint">该任务暂无论文上下文。</div>
                 )}
               </div>
             )}
 
             {activeTab === "approval" && (
               <div className="panel-content">
-                <h3>Approval</h3>
+                <h3>审批</h3>
                 {activeApproval ? (
                   <div className="approval-card">
                     <div className="stage-head">
                       <strong>{activeApproval.summary}</strong>
-                      <span>{activeApproval.status}</span>
+                      <span>{formatStatus(activeApproval.status)}</span>
                     </div>
                     <div className="approval-meta">
-                      <span>Risk: {activeApproval.risk_level}</span>
-                      <span>Updated: {formatDate(activeApproval.updated_at)}</span>
+                      <span>风险：{formatRisk(activeApproval.risk_level)}</span>
+                      <span>更新：{formatDate(activeApproval.updated_at)}</span>
                     </div>
                     <div className="provider-list">
                       {activeApproval.actions.map((action) => (
@@ -985,7 +1306,7 @@ export function App() {
                       ))}
                     </div>
                     {activeApproval.decision_comment && (
-                      <p className="subtle">Comment: {activeApproval.decision_comment}</p>
+                      <p className="subtle">备注：{activeApproval.decision_comment}</p>
                     )}
                     {activeTaskDetail?.status === "pending_approval" && activeApproval.status === "pending" && (
                       <div className="action-row approval-actions">
@@ -994,27 +1315,27 @@ export function App() {
                           className="primary-button"
                           onClick={() => handleApprovalDecision("approve")}
                         >
-                          Approve and continue
+                          批准并继续
                         </button>
                         <button
                           type="button"
                           className="secondary-button"
                           onClick={() => handleApprovalDecision("reject")}
                         >
-                          Reject
+                          拒绝
                         </button>
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div className="empty-hint">This task has no approval record.</div>
+                  <div className="empty-hint">该任务没有审批记录。</div>
                 )}
               </div>
             )}
 
             {activeTab === "metadata" && (
               <div className="panel-content">
-                <h3>Task Metadata</h3>
+                <h3>任务元数据</h3>
                 <pre>{JSON.stringify(activeTaskDetail?.metadata || {}, null, 2)}</pre>
               </div>
             )}
@@ -1032,8 +1353,8 @@ export function App() {
 
         <div className="panel settings-panel">
           <div className="panel-title-row">
-            <h2>Model Control Center</h2>
-            <span className="subtle">Priorities and enablement</span>
+            <h2>模型控制中心</h2>
+            <span className="subtle">优先级和启用状态</span>
           </div>
           <div className="settings-grid">
             {models.map((model) => (
@@ -1044,7 +1365,7 @@ export function App() {
                 </div>
                 <div className="subtle">{model.upstream_model}</div>
                 <label>
-                  <span>Priority</span>
+                  <span>优先级</span>
                   <select
                     value={model.priority}
                     onChange={(event) =>
@@ -1060,14 +1381,14 @@ export function App() {
                       )
                     }
                   >
-                    <option value="high">high</option>
-                    <option value="medium">medium</option>
-                    <option value="low">low</option>
-                    <option value="disabled">disabled</option>
+                    <option value="high">{PRIORITY_LABELS.high}</option>
+                    <option value="medium">{PRIORITY_LABELS.medium}</option>
+                    <option value="low">{PRIORITY_LABELS.low}</option>
+                    <option value="disabled">{PRIORITY_LABELS.disabled}</option>
                   </select>
                 </label>
                 <label className="toggle-row">
-                  <span>Enabled</span>
+                  <span>启用</span>
                   <input
                     type="checkbox"
                     checked={model.enabled}
@@ -1087,7 +1408,7 @@ export function App() {
                   className="secondary-button"
                   onClick={() => handleModelSave(model)}
                 >
-                  Save model settings
+                  保存模型设置
                 </button>
               </div>
             ))}
@@ -1096,16 +1417,15 @@ export function App() {
 
         <div className="panel settings-panel provider-panel">
           <div className="panel-title-row">
-            <h2>Provider/API Management</h2>
-            <span className="subtle">Connection settings and key status</span>
+            <h2>模型服务商/API 管理</h2>
+            <span className="subtle">连接设置和密钥状态</span>
           </div>
           <p className="subtle provider-note">
-            API keys stay on the backend. This view only edits environment variable names and
-            reports whether a key is configured.
+            API key 只保留在后端环境变量中。这里仅编辑环境变量名称，并显示密钥是否已配置。
           </p>
           <div className="settings-grid provider-grid">
             {providers.length === 0 ? (
-              <div className="empty-hint">No providers loaded.</div>
+              <div className="empty-hint">暂无模型服务商数据。</div>
             ) : (
               providers.map((provider) => {
                 const testMessage = providerTestMessages[provider.provider_id];
@@ -1114,7 +1434,7 @@ export function App() {
                     <div className="stage-head">
                       <strong>{provider.display_name}</strong>
                       <span className={`pill ${provider.enabled ? "accent" : "muted"}`}>
-                        {provider.enabled ? "Enabled" : "Disabled"}
+                        {provider.enabled ? "已启用" : "已禁用"}
                       </span>
                     </div>
                     {provider.description && (
@@ -1124,15 +1444,15 @@ export function App() {
                     <div className="provider-secret-row">
                       <span>API key</span>
                       <strong className={provider.api_key_configured ? "key-ok" : "key-missing"}>
-                        {provider.api_key_configured ? "Configured" : "Missing"}
+                        {provider.api_key_configured ? "已配置" : "缺失"}
                       </strong>
                     </div>
 
                     <label className="toggle-row">
-                      <span>Enabled</span>
+                      <span>启用</span>
                       <input
                         type="checkbox"
-                        aria-label={`${provider.display_name} enabled`}
+                        aria-label={`${provider.display_name} 启用状态`}
                         checked={provider.enabled}
                         onChange={(event) =>
                           updateProviderDraft(provider.provider_id, {
@@ -1142,10 +1462,10 @@ export function App() {
                       />
                     </label>
                     <label>
-                      <span>Base URL</span>
+                      <span>基础 URL</span>
                       <input
                         type="text"
-                        aria-label={`${provider.display_name} base URL`}
+                        aria-label={`${provider.display_name} 基础 URL`}
                         value={provider.api_base_url ?? ""}
                         placeholder="https://api.example.com/v1"
                         onChange={(event) =>
@@ -1156,10 +1476,10 @@ export function App() {
                       />
                     </label>
                     <label>
-                      <span>Protocol</span>
+                      <span>协议</span>
                       <input
                         type="text"
-                        aria-label={`${provider.display_name} protocol`}
+                        aria-label={`${provider.display_name} 协议`}
                         value={provider.protocol ?? ""}
                         placeholder="openai, openai-chat, openai-compatible, anthropic"
                         onChange={(event) =>
@@ -1170,10 +1490,10 @@ export function App() {
                       />
                     </label>
                     <label>
-                      <span>API key env</span>
+                      <span>API key 环境变量</span>
                       <input
                         type="text"
-                        aria-label={`${provider.display_name} API key environment variable`}
+                        aria-label={`${provider.display_name} API key 环境变量`}
                         value={provider.api_key_env ?? ""}
                         placeholder="OPENAI_API_KEY"
                         onChange={(event) =>
@@ -1189,7 +1509,7 @@ export function App() {
                         type="text"
                         aria-label={`${provider.display_name} Anthropic URL`}
                         value={provider.anthropic_api_base_url ?? ""}
-                        placeholder="Optional Anthropic-compatible endpoint"
+                        placeholder="可选的 Anthropic-compatible endpoint"
                         onChange={(event) =>
                           updateProviderDraft(provider.provider_id, {
                             anthropic_api_base_url: event.target.value,
@@ -1202,21 +1522,21 @@ export function App() {
                       <button
                         type="button"
                         className="secondary-button"
-                        aria-label={`Save ${provider.display_name} provider`}
+                        aria-label={`保存 ${provider.display_name} 模型服务商`}
                         onClick={() => handleProviderSave(provider)}
                       >
-                        Save provider
+                        保存模型服务商
                       </button>
                       <button
                         type="button"
                         className="secondary-button"
-                        aria-label={`Test ${provider.display_name} connection`}
+                        aria-label={`测试 ${provider.display_name} 连接`}
                         disabled={testingProviderId === provider.provider_id}
                         onClick={() => handleProviderTest(provider)}
                       >
                         {testingProviderId === provider.provider_id
-                          ? "Testing..."
-                          : "Test connection"}
+                          ? "测试中..."
+                          : "测试连接"}
                       </button>
                     </div>
                     {testMessage && (
@@ -1234,19 +1554,564 @@ export function App() {
     );
   }
 
+  function renderModelControlV2() {
+    return (
+      <div className="settings-shell">
+        {settingsMessage && <div className="message success">{settingsMessage}</div>}
+        {settingsError && <div className="message error">{settingsError}</div>}
+
+        <div className="panel settings-panel provider-panel">
+          <div className="panel-title-row">
+            <h2>模型服务商/API 管理</h2>
+            <span className="subtle">用户自定义 Provider 和 API key</span>
+          </div>
+          <p className="subtle provider-note">
+            这里不再预置 OpenAI、Kimi、GLM 或豆包。Provider、API 地址和 API key 都由用户自己添加；API key 只保存在本地忽略文件，不会从接口返回。
+          </p>
+          <div className="control-grid">
+            <label>
+              <span>Provider ID</span>
+              <input
+                type="text"
+                value={newProvider.provider_id}
+                placeholder="volces-ark"
+                onChange={(event) =>
+                  setNewProvider((current) => ({
+                    ...current,
+                    provider_id: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              <span>显示名称</span>
+              <input
+                type="text"
+                value={newProvider.display_name}
+                placeholder="Volces Ark"
+                onChange={(event) =>
+                  setNewProvider((current) => ({
+                    ...current,
+                    display_name: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label className="full-width">
+              <span>描述</span>
+              <input
+                type="text"
+                value={newProvider.description || ""}
+                placeholder="用于代码工程任务的豆包模型服务商"
+                onChange={(event) =>
+                  setNewProvider((current) => ({
+                    ...current,
+                    description: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              <span>基础 URL</span>
+              <input
+                type="text"
+                value={newProvider.api_base_url || ""}
+                placeholder="https://ark.cn-beijing.volces.com/api/coding/v3"
+                onChange={(event) =>
+                  setNewProvider((current) => ({
+                    ...current,
+                    api_base_url: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              <span>协议</span>
+              <select
+                value={newProvider.protocol || "openai-compatible"}
+                onChange={(event) =>
+                  setNewProvider((current) => ({
+                    ...current,
+                    protocol: event.target.value,
+                  }))
+                }
+              >
+                <option value="openai-compatible">OpenAI 兼容</option>
+                <option value="openai">OpenAI</option>
+                <option value="openai-chat">OpenAI Chat</option>
+                <option value="anthropic">Anthropic</option>
+              </select>
+            </label>
+            <label>
+              <span>API key</span>
+              <input
+                type="password"
+                value={newProvider.api_key || ""}
+                placeholder="粘贴 API key"
+                onChange={(event) =>
+                  setNewProvider((current) => ({
+                    ...current,
+                    api_key: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              <span>API key 环境变量</span>
+              <input
+                type="text"
+                value={newProvider.api_key_env || ""}
+                placeholder="ARK_API_KEY"
+                onChange={(event) =>
+                  setNewProvider((current) => ({
+                    ...current,
+                    api_key_env: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label className="full-width">
+              <span>Anthropic URL</span>
+              <input
+                type="text"
+                value={newProvider.anthropic_api_base_url || ""}
+                placeholder="可选的 Anthropic-compatible endpoint"
+                onChange={(event) =>
+                  setNewProvider((current) => ({
+                    ...current,
+                    anthropic_api_base_url: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label className="toggle-row">
+              <span>启用</span>
+              <input
+                type="checkbox"
+                checked={newProvider.enabled}
+                onChange={(event) =>
+                  setNewProvider((current) => ({
+                    ...current,
+                    enabled: event.target.checked,
+                  }))
+                }
+              />
+            </label>
+          </div>
+          <div className="action-row">
+            <button type="button" className="primary-button" onClick={handleCreateProvider}>
+              添加模型服务商
+            </button>
+            <div className="subtle">先添加 Provider/API，再添加具体模型。</div>
+          </div>
+
+          <div className="settings-grid provider-grid">
+            {providers.length === 0 ? (
+              <div className="empty-hint">还没有用户模型服务商。请先添加 API。</div>
+            ) : (
+              providers.map((provider) => {
+                const testMessage = providerTestMessages[provider.provider_id];
+                return (
+                  <div key={provider.provider_id} className="settings-card provider-card">
+                    <div className="stage-head">
+                      <strong>{provider.display_name}</strong>
+                      <span className={`pill ${provider.enabled ? "accent" : "muted"}`}>
+                        {provider.enabled ? "已启用" : "已禁用"}
+                      </span>
+                    </div>
+                    <div className="provider-secret-row">
+                      <span>API key</span>
+                      <strong className={provider.api_key_configured ? "key-ok" : "key-missing"}>
+                        {provider.api_key_configured ? "已配置" : "缺失"}
+                      </strong>
+                    </div>
+                    <label className="toggle-row">
+                      <span>启用</span>
+                      <input
+                        type="checkbox"
+                        aria-label={`${provider.display_name} 启用状态`}
+                        checked={provider.enabled}
+                        onChange={(event) =>
+                          updateProviderDraft(provider.provider_id, {
+                            enabled: event.target.checked,
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>显示名称</span>
+                      <input
+                        type="text"
+                        aria-label={`${provider.display_name} 显示名称`}
+                        value={provider.display_name}
+                        onChange={(event) =>
+                          updateProviderDraft(provider.provider_id, {
+                            display_name: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>描述</span>
+                      <input
+                        type="text"
+                        aria-label={`${provider.display_name} 描述`}
+                        value={provider.description ?? ""}
+                        onChange={(event) =>
+                          updateProviderDraft(provider.provider_id, {
+                            description: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>基础 URL</span>
+                      <input
+                        type="text"
+                        aria-label={`${provider.display_name} 基础 URL`}
+                        value={provider.api_base_url ?? ""}
+                        placeholder="https://api.example.com/v1"
+                        onChange={(event) =>
+                          updateProviderDraft(provider.provider_id, {
+                            api_base_url: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>协议</span>
+                      <select
+                        aria-label={`${provider.display_name} 协议`}
+                        value={provider.protocol ?? "openai-compatible"}
+                        onChange={(event) =>
+                          updateProviderDraft(provider.provider_id, {
+                            protocol: event.target.value,
+                          })
+                        }
+                      >
+                        <option value="openai-compatible">OpenAI 兼容</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="openai-chat">OpenAI Chat</option>
+                        <option value="anthropic">Anthropic</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>API key</span>
+                      <input
+                        type="password"
+                        aria-label={`${provider.display_name} API key`}
+                        value={providerApiKeys[provider.provider_id] ?? ""}
+                        placeholder={
+                          provider.api_key_configured
+                            ? "留空则不修改已保存 API key"
+                            : "粘贴 API key"
+                        }
+                        onChange={(event) =>
+                          setProviderApiKeys((previous) => ({
+                            ...previous,
+                            [provider.provider_id]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>API key 环境变量</span>
+                      <input
+                        type="text"
+                        aria-label={`${provider.display_name} API key 环境变量`}
+                        value={provider.api_key_env ?? ""}
+                        placeholder="OPENAI_API_KEY"
+                        onChange={(event) =>
+                          updateProviderDraft(provider.provider_id, {
+                            api_key_env: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>Anthropic URL</span>
+                      <input
+                        type="text"
+                        aria-label={`${provider.display_name} Anthropic URL`}
+                        value={provider.anthropic_api_base_url ?? ""}
+                        placeholder="可选的 Anthropic-compatible endpoint"
+                        onChange={(event) =>
+                          updateProviderDraft(provider.provider_id, {
+                            anthropic_api_base_url: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <div className="action-row provider-actions">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        aria-label={`保存 ${provider.display_name} 模型服务商`}
+                        onClick={() => handleProviderSave(provider)}
+                      >
+                        保存模型服务商
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        aria-label={`测试 ${provider.display_name} 连接`}
+                        disabled={testingProviderId === provider.provider_id}
+                        onClick={() => handleProviderTest(provider)}
+                      >
+                        {testingProviderId === provider.provider_id
+                          ? "测试中..."
+                          : "测试连接"}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => handleDeleteProvider(provider)}
+                      >
+                        删除模型服务商
+                      </button>
+                    </div>
+                    {testMessage && (
+                      <div className={`message ${testMessage.status}`}>
+                        {testMessage.text}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="panel settings-panel">
+          <div className="panel-title-row">
+            <h2>模型控制中心</h2>
+            <span className="subtle">只显示用户自己添加的模型</span>
+          </div>
+          <div className="control-grid">
+            <label>
+              <span>模型 ID</span>
+              <input
+                type="text"
+                value={newModel.model_id}
+                placeholder="doubao-seed-2.0-lite"
+                onChange={(event) =>
+                  setNewModel((current) => ({
+                    ...current,
+                    model_id: event.target.value,
+                    upstream_model: current.upstream_model || event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              <span>显示名称</span>
+              <input
+                type="text"
+                value={newModel.display_name}
+                placeholder="Doubao Seed 2.0 Lite"
+                onChange={(event) =>
+                  setNewModel((current) => ({
+                    ...current,
+                    display_name: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              <span>模型服务商</span>
+              <select
+                value={newModel.provider_id || providers[0]?.provider_id || ""}
+                disabled={providers.length === 0}
+                onChange={(event) =>
+                  setNewModel((current) => ({
+                    ...current,
+                    provider_id: event.target.value,
+                  }))
+                }
+              >
+                {providers.length === 0 ? (
+                  <option value="">请先添加模型服务商</option>
+                ) : (
+                  providers.map((provider) => (
+                    <option key={provider.provider_id} value={provider.provider_id}>
+                      {provider.display_name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
+            <label>
+              <span>上游模型名</span>
+              <input
+                type="text"
+                value={newModel.upstream_model}
+                placeholder="供应商实际 model 名称"
+                onChange={(event) =>
+                  setNewModel((current) => ({
+                    ...current,
+                    upstream_model: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              <span>优先级</span>
+              <select
+                value={newModel.priority}
+                onChange={(event) =>
+                  setNewModel((current) => ({
+                    ...current,
+                    priority: event.target.value as ModelSummary["priority"],
+                  }))
+                }
+              >
+                <option value="high">{PRIORITY_LABELS.high}</option>
+                <option value="medium">{PRIORITY_LABELS.medium}</option>
+                <option value="low">{PRIORITY_LABELS.low}</option>
+                <option value="disabled">{PRIORITY_LABELS.disabled}</option>
+              </select>
+            </label>
+            <label className="toggle-row">
+              <span>启用</span>
+              <input
+                type="checkbox"
+                checked={newModel.enabled}
+                onChange={(event) =>
+                  setNewModel((current) => ({
+                    ...current,
+                    enabled: event.target.checked,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              <span>适用预设</span>
+              <input
+                type="text"
+                value={newModelPresetScope}
+                placeholder="code-engineering, paper-revision；留空表示全部"
+                onChange={(event) => setNewModelPresetScope(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>适用任务类型</span>
+              <input
+                type="text"
+                value={newModelTaskScope}
+                placeholder="planning, writing, review；留空表示全部"
+                onChange={(event) => setNewModelTaskScope(event.target.value)}
+              />
+            </label>
+            <label className="full-width">
+              <span>适用角色</span>
+              <input
+                type="text"
+                value={newModelRoleScope}
+                placeholder="backend, frontend, reviewer；留空表示全部"
+                onChange={(event) => setNewModelRoleScope(event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="action-row">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={handleCreateModel}
+              disabled={providers.length === 0}
+            >
+              添加模型
+            </button>
+            <div className="subtle">模型也不再预置，必须由用户绑定到自己添加的 Provider。</div>
+          </div>
+
+          <div className="settings-grid">
+            {customModels.length === 0 ? (
+              <div className="empty-hint">还没有用户模型。先添加 Provider/API，再添加模型。</div>
+            ) : (
+              customModels.map((model) => (
+                <div key={model.model_id} className="settings-card">
+                  <div className="stage-head">
+                    <strong>{model.display_name}</strong>
+                    <span>{model.provider_id}</span>
+                  </div>
+                  <div className="subtle">{model.upstream_model}</div>
+                  <label>
+                    <span>优先级</span>
+                    <select
+                      value={model.priority}
+                      onChange={(event) =>
+                        setCustomModels((previous) =>
+                          previous.map((item) =>
+                            item.model_id === model.model_id
+                              ? {
+                                  ...item,
+                                  priority: event.target.value as ModelSummary["priority"],
+                                }
+                              : item,
+                          ),
+                        )
+                      }
+                    >
+                      <option value="high">{PRIORITY_LABELS.high}</option>
+                      <option value="medium">{PRIORITY_LABELS.medium}</option>
+                      <option value="low">{PRIORITY_LABELS.low}</option>
+                      <option value="disabled">{PRIORITY_LABELS.disabled}</option>
+                    </select>
+                  </label>
+                  <label className="toggle-row">
+                    <span>启用</span>
+                    <input
+                      type="checkbox"
+                      checked={model.enabled}
+                      onChange={(event) =>
+                        setCustomModels((previous) =>
+                          previous.map((item) =>
+                            item.model_id === model.model_id
+                              ? { ...item, enabled: event.target.checked }
+                              : item,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
+                  <div className="action-row provider-actions">
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => handleModelSave(model)}
+                    >
+                      保存模型设置
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => handleDeleteModel(model)}
+                    >
+                      删除模型
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderRuleTemplates() {
     return (
       <div className="settings-shell template-shell">
         <div className="panel template-list-panel">
           <div className="panel-title-row">
-            <h2>Rule Templates</h2>
+            <h2>规则模板</h2>
             <button type="button" className="secondary-button" onClick={handleCreateTemplate}>
-              New template
+              新建模板
             </button>
           </div>
           <div className="history-list">
             {ruleTemplates.length === 0 ? (
-              <div className="empty-hint">No templates yet.</div>
+              <div className="empty-hint">暂无模板。</div>
             ) : (
               ruleTemplates.map((template) => (
                 <button
@@ -1258,7 +2123,7 @@ export function App() {
                   <span>{template.display_name}</span>
                   <small>
                     {template.preset_mode}
-                    {template.is_default ? " / default" : ""}
+                    {template.is_default ? " / 默认" : ""}
                   </small>
                 </button>
               ))
@@ -1268,14 +2133,14 @@ export function App() {
 
         <div className="panel template-editor-panel">
           <div className="panel-title-row">
-            <h2>Template Editor</h2>
-            <span className="subtle">{editingTemplateId ? "Edit existing" : "Create new"}</span>
+            <h2>模板编辑器</h2>
+            <span className="subtle">{editingTemplateId ? "编辑已有模板" : "创建新模板"}</span>
           </div>
           {settingsMessage && <div className="message success">{settingsMessage}</div>}
           {settingsError && <div className="message error">{settingsError}</div>}
           <div className="control-grid">
             <label>
-              <span>Template ID</span>
+              <span>模板 ID</span>
               <input
                 type="text"
                 value={templateDraft.template_id}
@@ -1288,7 +2153,7 @@ export function App() {
               />
             </label>
             <label>
-              <span>Display Name</span>
+              <span>显示名称</span>
               <input
                 type="text"
                 value={templateDraft.display_name}
@@ -1301,7 +2166,7 @@ export function App() {
               />
             </label>
             <label className="full-width">
-              <span>Description</span>
+              <span>描述</span>
               <input
                 type="text"
                 value={templateDraft.description}
@@ -1314,7 +2179,7 @@ export function App() {
               />
             </label>
             <label>
-              <span>Preset Mode</span>
+              <span>预设模式</span>
               <select
                 value={templateDraft.preset_mode}
                 onChange={(event) =>
@@ -1332,7 +2197,7 @@ export function App() {
               </select>
             </label>
             <label>
-              <span>Coordinator Model</span>
+              <span>协调模型</span>
               <select
                 value={templateDraft.default_coordinator_model_id}
                 onChange={(event) =>
@@ -1350,7 +2215,7 @@ export function App() {
               </select>
             </label>
             <label>
-              <span>Task Types</span>
+              <span>任务类型</span>
               <input
                 type="text"
                 value={templateDraft.task_types.join(", ")}
@@ -1367,11 +2232,11 @@ export function App() {
               />
             </label>
             <label>
-              <span>Trigger Keywords</span>
+              <span>触发关键词</span>
               <input
                 type="text"
                 value={templateDraft.trigger_keywords.join(", ")}
-                placeholder="paper, review, journal"
+                placeholder="论文, 审查, 期刊"
                 onChange={(event) =>
                   updateTemplateDraft((current) => ({
                     ...current,
@@ -1384,7 +2249,7 @@ export function App() {
               />
             </label>
             <label className="toggle-row">
-              <span>Enabled</span>
+              <span>启用</span>
               <input
                 type="checkbox"
                 checked={templateDraft.enabled}
@@ -1397,7 +2262,7 @@ export function App() {
               />
             </label>
             <label className="toggle-row">
-              <span>Default</span>
+              <span>默认模板</span>
               <input
                 type="checkbox"
                 checked={templateDraft.is_default}
@@ -1410,7 +2275,7 @@ export function App() {
               />
             </label>
             <label className="full-width">
-              <span>Notes</span>
+              <span>备注</span>
               <textarea
                 value={templateDraft.notes}
                 onChange={(event) =>
@@ -1424,7 +2289,7 @@ export function App() {
           </div>
 
           <div className="panel-title-row inline-spacer">
-            <h3>Assignments</h3>
+            <h3>角色分配</h3>
             <button
               type="button"
               className="secondary-button"
@@ -1435,21 +2300,21 @@ export function App() {
                     ...current.assignments,
                     {
                       role: "new-role",
-                      responsibility: "Describe responsibility",
+                      responsibility: "说明职责",
                       model_id: models[0]?.model_id || "gpt-5.4",
                     },
                   ],
                 }))
               }
             >
-              Add assignment
+              添加分配
             </button>
           </div>
           {renderAssignmentsEditor(templateDraft.assignments)}
 
           <div className="action-row">
             <button type="button" className="primary-button" onClick={handleSaveTemplate}>
-              Save template
+              保存模板
             </button>
             <button
               type="button"
@@ -1457,7 +2322,7 @@ export function App() {
               onClick={handleDeleteTemplate}
               disabled={!editingTemplateId}
             >
-              Delete template
+              删除模板
             </button>
           </div>
         </div>
@@ -1472,7 +2337,7 @@ export function App() {
           <div className="brand-mark">M</div>
           <div>
             <div className="brand-title">Mindforge</div>
-            <div className="brand-subtitle">Web Workspace</div>
+            <div className="brand-subtitle">Web 工作台</div>
           </div>
         </div>
 
@@ -1492,7 +2357,7 @@ export function App() {
 
         <section className="sidebar-section">
           <div className="panel-title-row history-toolbar">
-            <div className="sidebar-heading">Recent Tasks</div>
+            <div className="sidebar-heading">最近任务</div>
             <select
               className="history-filter"
               value={historyFilter}
@@ -1507,7 +2372,7 @@ export function App() {
           </div>
           <div className="history-list">
             {historyItems.length === 0 ? (
-              <div className="empty-hint">No tasks in history yet.</div>
+              <div className="empty-hint">暂无历史任务。</div>
             ) : (
               historyItems.map((task) => (
                 <button
@@ -1518,7 +2383,7 @@ export function App() {
                 >
                   <span>{formatTitle(task.prompt)}</span>
                   <small>
-                    {task.status} / {formatDate(task.updated_at)}
+                    {formatStatus(task.status)} / {formatDate(task.updated_at)}
                   </small>
                 </button>
               ))
@@ -1527,19 +2392,19 @@ export function App() {
         </section>
 
         <section className="sidebar-section compact">
-          <div className="sidebar-heading">Pending approvals</div>
+          <div className="sidebar-heading">待审批</div>
           <div className="provider-list">
-            <span className="pill accent">{pendingApprovals.length} pending</span>
+            <span className="pill accent">{pendingApprovals.length} 个待审批</span>
             {pendingApprovals.slice(0, 2).map((approval) => (
               <span key={approval.approval_id} className="pill">
-                {approval.risk_level}
+                {formatRisk(approval.risk_level)}
               </span>
             ))}
           </div>
         </section>
 
         <section className="sidebar-section compact">
-          <div className="sidebar-heading">Backend</div>
+          <div className="sidebar-heading">后端</div>
           <div className="api-hint">{getApiBaseUrl()}</div>
           <div className="provider-list">
             {providers.map((provider) => (
@@ -1554,24 +2419,23 @@ export function App() {
       <main className="workspace">
         <header className="workspace-header">
           <div>
-            <h1>Mindforge Control Workspace</h1>
+            <h1>Mindforge 控制工作台</h1>
             <p>
-              Web app shell inspired by OpenHands, with task history, approvals, model and
-              provider control, and rule templates in one place.
+              参考 OpenHands 的 Web 工作台，集中管理任务历史、审批、模型、模型服务商和规则模板。
             </p>
           </div>
           <div className="status-row">
             <span className="pill accent">Phase 11</span>
-            <span className="pill">Paper revision ready</span>
-            <span className="pill">{models.length} models</span>
-            <span className="pill">{providers.length} providers</span>
-            <span className="pill">{ruleTemplates.length} templates</span>
-            <span className="pill">{historyItems.length} recent tasks</span>
+            <span className="pill">论文修改已就绪</span>
+            <span className="pill">{models.length} 个模型</span>
+            <span className="pill">{providers.length} 个模型服务商</span>
+            <span className="pill">{ruleTemplates.length} 个模板</span>
+            <span className="pill">{historyItems.length} 个最近任务</span>
           </div>
         </header>
 
         {view === "workspace" && renderWorkspace()}
-        {view === "models" && renderModelControl()}
+        {view === "models" && renderModelControlV2()}
         {view === "rules" && renderRuleTemplates()}
       </main>
     </div>

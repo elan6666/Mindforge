@@ -70,6 +70,7 @@ class ProviderSummary(BaseModel):
     api_key_configured: bool = False
     protocol: str = "openai"
     anthropic_api_base_url: str | None = None
+    is_custom: bool = False
 
 
 class ModelSummary(BaseModel):
@@ -84,23 +85,61 @@ class ModelSummary(BaseModel):
     supported_preset_modes: list[str] = Field(default_factory=list)
     supported_task_types: list[str] = Field(default_factory=list)
     supported_roles: list[str] = Field(default_factory=list)
+    is_custom: bool = False
 
 
 class ModelControlUpdate(BaseModel):
     """Editable model control fields exposed by the Phase 7 UI."""
 
+    display_name: str | None = None
+    provider_id: str | None = None
+    upstream_model: str | None = None
     priority: ModelPriority | None = None
     enabled: bool | None = None
+    supported_preset_modes: list[str] | None = None
+    supported_task_types: list[str] | None = None
+    supported_roles: list[str] | None = None
 
 
 class ProviderControlUpdate(BaseModel):
     """Editable provider control fields exposed by the Provider/API UI."""
 
+    display_name: str | None = None
+    description: str | None = None
     enabled: bool | None = None
     api_base_url: str | None = None
     api_key_env: str | None = None
+    api_key: str | None = None
     protocol: str | None = None
     anthropic_api_base_url: str | None = None
+
+
+class ProviderCreateRequest(BaseModel):
+    """Create a user-managed provider from the control center."""
+
+    provider_id: str = Field(..., min_length=1)
+    display_name: str = Field(..., min_length=1)
+    description: str = ""
+    enabled: bool = True
+    api_base_url: str | None = None
+    api_key_env: str | None = None
+    api_key: str | None = None
+    protocol: str = "openai"
+    anthropic_api_base_url: str | None = None
+
+
+class ModelCreateRequest(BaseModel):
+    """Create a user-managed model from the control center."""
+
+    model_id: str = Field(..., min_length=1)
+    display_name: str = Field(..., min_length=1)
+    provider_id: str = Field(..., min_length=1)
+    upstream_model: str = Field(..., min_length=1)
+    priority: ModelPriority = ModelPriority.MEDIUM
+    enabled: bool = True
+    supported_preset_modes: list[str] = Field(default_factory=list)
+    supported_task_types: list[str] = Field(default_factory=list)
+    supported_roles: list[str] = Field(default_factory=list)
 
 
 class ModelOverrideEntry(BaseModel):
@@ -124,12 +163,23 @@ class ModelOverridesDocument(BaseModel):
     """Local writable overrides layered on top of the seed catalog."""
 
     models: dict[str, ModelOverrideEntry] = Field(default_factory=dict)
+    custom_models: dict[str, ModelDefinition] = Field(default_factory=dict)
 
 
 class ProviderOverridesDocument(BaseModel):
     """Local writable provider overrides layered on top of the seed catalog."""
 
     providers: dict[str, ProviderOverrideEntry] = Field(default_factory=dict)
+    custom_providers: dict[str, ProviderDefinition] = Field(default_factory=dict)
+
+
+class ProviderSecretsDocument(BaseModel):
+    """Local-only API secrets keyed by provider id.
+
+    This file is intentionally not exposed by any API response.
+    """
+
+    api_keys: dict[str, str] = Field(default_factory=dict)
 
 
 class ProviderConnectionTestResult(BaseModel):

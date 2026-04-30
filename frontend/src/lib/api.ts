@@ -3,10 +3,12 @@ import type {
   GitHubIssueSummary,
   GitHubPullRequestSummary,
   GitHubRepositorySummary,
+  ModelCreateRequest,
   ModelControlUpdate,
   ModelSummary,
   PresetSummary,
   ProviderConnectionTestResult,
+  ProviderCreateRequest,
   ProviderControlUpdate,
   ProviderSummary,
   RuleTemplateSummary,
@@ -35,7 +37,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const payload = await response.json();
   if (!response.ok) {
     throw new Error(
-      payload.error_message || payload.message || payload.detail || "Request failed.",
+      payload.error_message || payload.message || payload.detail || "请求失败。",
     );
   }
   return payload as T;
@@ -53,6 +55,19 @@ export function fetchProviders(): Promise<ProviderSummary[]> {
   return requestJson<ProviderSummary[]>("/control/providers");
 }
 
+export function fetchUserProviders(): Promise<ProviderSummary[]> {
+  return requestJson<ProviderSummary[]>("/control/user-providers");
+}
+
+export function createProviderControl(
+  payload: ProviderCreateRequest,
+): Promise<ProviderSummary> {
+  return requestJson<ProviderSummary>("/control/providers", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function updateProviderControl(
   providerId: string,
   payload: ProviderControlUpdate,
@@ -60,6 +75,12 @@ export function updateProviderControl(
   return requestJson<ProviderSummary>(`/control/providers/${providerId}`, {
     method: "PUT",
     body: JSON.stringify(payload),
+  });
+}
+
+export function deleteProviderControl(providerId: string): Promise<void> {
+  return requestJson<void>(`/control/providers/${providerId}`, {
+    method: "DELETE",
   });
 }
 
@@ -79,7 +100,16 @@ export function fetchModels(): Promise<ModelSummary[]> {
 }
 
 export function fetchEditableModels(): Promise<ModelSummary[]> {
-  return requestJson<ModelSummary[]>("/control/models");
+  return requestJson<ModelSummary[]>("/control/user-models");
+}
+
+export function createModelControl(
+  payload: ModelCreateRequest,
+): Promise<ModelSummary> {
+  return requestJson<ModelSummary>("/control/models", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function updateModelControl(
@@ -89,6 +119,12 @@ export function updateModelControl(
   return requestJson<ModelSummary>(`/control/models/${modelId}`, {
     method: "PUT",
     body: JSON.stringify(payload),
+  });
+}
+
+export function deleteModelControl(modelId: string): Promise<void> {
+  return requestJson<void>(`/control/models/${modelId}`, {
+    method: "DELETE",
   });
 }
 

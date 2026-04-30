@@ -24,9 +24,11 @@ def isolated_model_control_storage(tmp_path, monkeypatch):
     control_dir.mkdir(parents=True, exist_ok=True)
     overrides_path = control_dir / "model_overrides.json"
     provider_overrides_path = control_dir / "provider_overrides.json"
+    provider_secrets_path = control_dir / "provider_secrets.json"
     templates_path = control_dir / "rule_templates.json"
     overrides_path.write_text('{"models": {}}', encoding="utf-8")
     provider_overrides_path.write_text('{"providers": {}}', encoding="utf-8")
+    provider_secrets_path.write_text('{"api_keys": {}}', encoding="utf-8")
     templates_path.write_text(json.dumps({"templates": []}, indent=2), encoding="utf-8")
 
     from app.backend.services import model_loader, rule_template_loader
@@ -34,6 +36,7 @@ def isolated_model_control_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(model_loader, "MODEL_CONTROL_DIR", control_dir)
     monkeypatch.setattr(model_loader, "MODEL_OVERRIDES_PATH", overrides_path)
     monkeypatch.setattr(model_loader, "PROVIDER_OVERRIDES_PATH", provider_overrides_path)
+    monkeypatch.setattr(model_loader, "PROVIDER_SECRETS_PATH", provider_secrets_path)
     monkeypatch.setattr(rule_template_loader, "RULE_TEMPLATES_PATH", templates_path)
 
     clear_model_registry_service_cache()
@@ -482,6 +485,52 @@ def test_control_provider_update_rejects_invalid_url(isolated_model_control_stor
 
     assert response.status_code == 400
     assert "Provider URLs must start" in response.json()["detail"]
+
+
+def test_control_user_provider_and_model_crud(isolated_model_control_storage):
+    client = TestClient(create_app())
+
+    provider_response = client.post(
+        "/api/control/providers",
+        json={
+            "provider_id": "custom-ark",
+            "display_name": "Custom Ark",
+            "description": "User provider",
+            "api_base_url": "https://ark.example/v3",
+            "protocol": "openai-compatible",
+            "api_key": "secret-value",
+            "api_key_env": "CUSTOM_ARK_KEY",
+        },
+    )
+    model_response = client.post(
+        "/api/control/models",
+        json={
+            "model_id": "custom-doubao",
+            "display_name": "Custom Doubao",
+            "provider_id": "custom-ark",
+            "upstream_model": "doubao-seed-2.0-lite",
+            "priority": "high",
+            "supported_preset_modes": ["code-engineering"],
+        },
+    )
+    providers_response = client.get("/api/control/user-providers")
+    models_response = client.get("/api/control/user-models")
+
+    assert provider_response.status_code == 201
+    provider_body = provider_response.json()
+    assert provider_body["provider_id"] == "custom-ark"
+    assert provider_body["is_custom"] is True
+    assert provider_body["api_key_configured"] is True
+    assert "secret-value" not in str(provider_body)
+    assert model_response.status_code == 201
+    assert model_response.json()["is_custom"] is True
+    assert any(item["provider_id"] == "custom-ark" for item in providers_response.json())
+    assert any(item["model_id"] == "custom-doubao" for item in models_response.json())
+
+    delete_response = client.delete("/api/control/providers/custom-ark")
+    assert delete_response.status_code == 204
+    assert client.get("/api/control/user-providers").json() == []
+    assert client.get("/api/control/user-models").json() == []
 
 
 def test_rule_template_endpoints_support_crud(isolated_model_control_storage):

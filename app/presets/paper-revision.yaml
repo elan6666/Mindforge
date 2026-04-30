@@ -1,6 +1,6 @@
 preset_mode: paper-revision
-display_name: Paper Revision
-description: Coordinate standards analysis, paper rewriting, and reviewer-style critique for academic papers.
+display_name: 论文修改
+description: 协调期刊标准分析、论文改写和审稿人式反馈。
 agent_roles:
   - standards-editor
   - reviser

@@ -1,6 +1,6 @@
 preset_mode: code-review
-display_name: Code Review
-description: Analyze code changes and organize review responsibilities for future review flows.
+display_name: 代码审查
+description: 分析代码变更，并组织审查和安全审查职责。
 agent_roles:
   - reviewer
   - security-reviewer

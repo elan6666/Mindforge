@@ -1,6 +1,6 @@
 preset_mode: code-engineering
-display_name: Code Engineering
-description: Prepare tasks for future code-engineering orchestration with planning, coding, and review stages.
+display_name: 代码工程
+description: 为代码工程任务准备规划、实现和审查阶段。
 agent_roles:
   - project-manager
   - backend

@@ -16,13 +16,19 @@ import type {
 
 vi.mock("./lib/api", () => ({
   approveTask: vi.fn(),
+  createModelControl: vi.fn(),
+  createProviderControl: vi.fn(),
   createRuleTemplate: vi.fn(),
+  deleteModelControl: vi.fn(),
+  deleteProviderControl: vi.fn(),
   deleteRuleTemplate: vi.fn(),
   fetchEditableModels: vi.fn(),
   fetchHistoryTasks: vi.fn(),
+  fetchModels: vi.fn(),
   fetchPendingApprovals: vi.fn(),
   fetchPresets: vi.fn(),
   fetchProviders: vi.fn(),
+  fetchUserProviders: vi.fn(),
   fetchRuleTemplates: vi.fn(),
   fetchTaskHistoryDetail: vi.fn(),
   getApiBaseUrl: vi.fn(() => "http://127.0.0.1:8000/api"),
@@ -37,9 +43,16 @@ vi.mock("./lib/api", () => ({
 const presets: PresetSummary[] = [
   {
     preset_mode: "code-engineering",
-    display_name: "Code Engineering",
-    description: "Coordinate planning, backend, frontend, and review.",
+    display_name: "代码工程",
+    description: "协调规划、后端、前端和审查。",
     requires_repo_analysis: true,
+    requires_approval: false,
+  },
+  {
+    preset_mode: "paper-revision",
+    display_name: "论文修改",
+    description: "协调期刊标准分析、论文改写和审稿人式反馈。",
+    requires_repo_analysis: false,
     requires_approval: false,
   },
 ];
@@ -48,7 +61,7 @@ const providers: ProviderSummary[] = [
   {
     provider_id: "openai",
     display_name: "OpenAI",
-    description: "Primary provider",
+    description: "主力 Provider",
     enabled: true,
     api_base_url: "https://api.openai.com/v1",
     protocol: "openai",
@@ -75,8 +88,8 @@ const models: ModelSummary[] = [
 const ruleTemplates: RuleTemplateSummary[] = [
   {
     template_id: "code-engineering-default",
-    display_name: "Code Engineering Default",
-    description: "Default template",
+    display_name: "代码工程默认模板",
+    description: "默认模板",
     preset_mode: "code-engineering",
     task_types: ["planning"],
     default_coordinator_model_id: "gpt-5.4",
@@ -86,11 +99,11 @@ const ruleTemplates: RuleTemplateSummary[] = [
     assignments: [
       {
         role: "frontend",
-        responsibility: "UI implementation",
+        responsibility: "界面实现",
         model_id: "gpt-5.4",
       },
     ],
-    notes: "Default template",
+    notes: "默认模板",
   },
 ];
 
@@ -99,8 +112,8 @@ const approval: ApprovalRecord = {
   task_id: "task-1",
   status: "pending",
   risk_level: "high",
-  summary: "Needs approval before write actions.",
-  actions: ["write files", "execute shell"],
+  summary: "写入操作前需要审批。",
+  actions: ["写入文件", "执行命令"],
   decision_comment: null,
   created_at: "2026-04-21T10:00:00+08:00",
   updated_at: "2026-04-21T10:01:00+08:00",
@@ -124,8 +137,8 @@ const historyItems: TaskHistorySummary[] = [
 const historyDetail: TaskHistoryDetail = {
   ...historyItems[0],
   repo_path: ".",
-  message: "Waiting for approval.",
-  output: "Staged execution result",
+  message: "等待审批。",
+  output: "阶段执行结果",
   error_message: null,
   request_payload: {
     prompt: "Implement login flow",
@@ -146,8 +159,8 @@ const historyDetail: TaskHistoryDetail = {
           model: "gpt-5.4",
           status: "completed",
           provider: "mock-openhands",
-          summary: "Created an execution plan.",
-          output: "Plan output",
+          summary: "已创建执行计划。",
+          output: "计划输出",
           metadata: {},
           error_message: null,
         },
@@ -175,7 +188,7 @@ const historyDetail: TaskHistoryDetail = {
         author: "octocat",
         labels: ["bug"],
         comment_count: 3,
-        body_excerpt: "Issue context",
+        body_excerpt: "Issue 上下文",
       },
       pull_request: {
         number: 9,
@@ -190,23 +203,23 @@ const historyDetail: TaskHistoryDetail = {
         merged: false,
         head_ref: "feature",
         base_ref: "main",
-        body_excerpt: "PR context",
+        body_excerpt: "PR 上下文",
       },
     },
     academic_context: {
       journal: {
         journal_name: "Example Journal",
         journal_url: "https://journal.example/guidelines",
-        title: "Author Guidelines",
-        excerpt: "Use structured abstracts and concise academic English.",
+        title: "作者指南",
+        excerpt: "使用结构化摘要和简洁的学术表达。",
         status: "fetched",
         error_message: null,
       },
       reference_papers: [
         {
           url: "https://paper.example/reference",
-          title: "Reference Paper",
-          excerpt: "Contribution-first structure.",
+          title: "参考论文",
+          excerpt: "贡献优先的结构。",
           status: "fetched",
           error_message: null,
         },
@@ -224,8 +237,8 @@ const historyDetail: TaskHistoryDetail = {
       model: "gpt-5.4",
       provider: "mock-openhands",
       status: "completed",
-      summary: "Created an execution plan.",
-      output: "Plan output",
+      summary: "已创建执行计划。",
+      output: "计划输出",
       metadata: {},
       error_message: null,
       created_at: "2026-04-21T10:00:00+08:00",
@@ -236,10 +249,10 @@ const historyDetail: TaskHistoryDetail = {
 
 const approvalResult: TaskResult = {
   status: "completed",
-  message: "Approved",
+  message: "已批准",
   error_message: null,
   data: {
-    output: "Approved output",
+    output: "批准后的输出",
     provider: "mock-openhands",
     metadata: {
       task_id: "task-1",
@@ -254,6 +267,8 @@ const approvalResult: TaskResult = {
 function setupApiMocks() {
   vi.mocked(api.fetchPresets).mockResolvedValue(presets);
   vi.mocked(api.fetchProviders).mockResolvedValue(providers);
+  vi.mocked(api.fetchUserProviders).mockResolvedValue(providers);
+  vi.mocked(api.fetchModels).mockResolvedValue(models);
   vi.mocked(api.fetchEditableModels).mockResolvedValue(models);
   vi.mocked(api.fetchRuleTemplates).mockResolvedValue(ruleTemplates);
   vi.mocked(api.fetchHistoryTasks).mockResolvedValue(historyItems);
@@ -268,8 +283,28 @@ function setupApiMocks() {
   vi.mocked(api.updateProviderControl).mockImplementation(async (providerId, payload) => ({
     ...providers[0],
     ...payload,
+    display_name: payload.display_name || providers[0].display_name,
+    description: payload.description || providers[0].description,
     provider_id: providerId,
   }));
+  vi.mocked(api.createProviderControl).mockImplementation(async (payload) => ({
+    provider_id: payload.provider_id,
+    display_name: payload.display_name,
+    description: payload.description,
+    enabled: payload.enabled,
+    api_base_url: payload.api_base_url,
+    protocol: payload.protocol,
+    api_key_env: payload.api_key_env,
+    api_key_configured: Boolean(payload.api_key),
+    anthropic_api_base_url: payload.anthropic_api_base_url,
+    is_custom: true,
+  }));
+  vi.mocked(api.deleteProviderControl).mockResolvedValue(undefined);
+  vi.mocked(api.createModelControl).mockImplementation(async (payload) => ({
+    ...payload,
+    is_custom: true,
+  }));
+  vi.mocked(api.deleteModelControl).mockResolvedValue(undefined);
   vi.mocked(api.testProviderConnection).mockResolvedValue({
     provider_id: "openai",
     ok: true,
@@ -286,10 +321,10 @@ function setupApiMocks() {
   vi.mocked(api.deleteRuleTemplate).mockResolvedValue(undefined);
   vi.mocked(api.submitTask).mockResolvedValue({
     status: "completed",
-    message: "Submitted",
+    message: "已提交",
     error_message: null,
     data: {
-      output: "Submitted output",
+      output: "提交后的输出",
       provider: "mock-openhands",
       metadata: {
         task_id: "task-1",
@@ -315,12 +350,33 @@ describe("App workspace shell", () => {
       expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
     });
 
-    expect(screen.getByText("Mindforge Control Workspace")).toBeInTheDocument();
-    expect(screen.getByText("Task Workspace")).toBeInTheDocument();
-    expect(screen.getByText("Pending approvals")).toBeInTheDocument();
-    expect(screen.getByText("1 pending")).toBeInTheDocument();
+    expect(screen.getByText("Mindforge 控制工作台")).toBeInTheDocument();
+    expect(screen.getByText("任务工作台")).toBeInTheDocument();
+    expect(screen.getAllByText("待审批").length).toBeGreaterThan(0);
+    expect(screen.getByText("1 个待审批")).toBeInTheDocument();
     expect(screen.getByText("OpenAI")).toBeInTheDocument();
     expect(screen.getByText("http://127.0.0.1:8000/api")).toBeInTheDocument();
+  });
+
+  it("shows task fields according to the selected preset", async () => {
+    render(<App />);
+
+    await waitFor(() => {
+      expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
+    });
+
+    expect(screen.getByText("仓库路径")).toBeInTheDocument();
+    expect(screen.getByText("GitHub 仓库")).toBeInTheDocument();
+    expect(screen.queryByText("期刊名称")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByDisplayValue("代码工程"), {
+      target: { value: "paper-revision" },
+    });
+
+    expect(await screen.findByText("期刊名称")).toBeInTheDocument();
+    expect(screen.getByText("期刊投稿指南 URL")).toBeInTheDocument();
+    expect(screen.queryByText("仓库路径")).not.toBeInTheDocument();
+    expect(screen.queryByText("GitHub 仓库")).not.toBeInTheDocument();
   });
 
   it("switches into model control and rule template views", async () => {
@@ -330,14 +386,14 @@ describe("App workspace shell", () => {
       expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Models Control" }));
-    expect(await screen.findByText("Model Control Center")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save model settings" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "模型 控制" }));
+    expect(await screen.findByText("模型控制中心")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存模型设置" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Templates Rules" }));
-    expect(await screen.findByText("Rule Templates")).toBeInTheDocument();
-    expect(screen.getByText("Template Editor")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save template" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "模板 规则" }));
+    expect(await screen.findByText("规则模板")).toBeInTheDocument();
+    expect(screen.getByText("模板编辑器")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存模板" })).toBeInTheDocument();
   });
 
   it("edits provider controls and tests a provider connection", async () => {
@@ -347,42 +403,48 @@ describe("App workspace shell", () => {
       expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Models Control" }));
-    expect(await screen.findByText("Provider/API Management")).toBeInTheDocument();
-    expect(screen.getByText("Configured")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "模型 控制" }));
+    expect(await screen.findByText("模型服务商/API 管理")).toBeInTheDocument();
+    expect(screen.getByText("已配置")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText("OpenAI enabled"));
-    fireEvent.change(screen.getByLabelText("OpenAI base URL"), {
+    fireEvent.click(screen.getByLabelText("OpenAI 启用状态"));
+    fireEvent.change(screen.getByLabelText("OpenAI 基础 URL"), {
       target: { value: "https://proxy.example/v1" },
     });
-    fireEvent.change(screen.getByLabelText("OpenAI protocol"), {
+    fireEvent.change(screen.getByLabelText("OpenAI 协议"), {
       target: { value: "openai-compatible" },
     });
-    fireEvent.change(screen.getByLabelText("OpenAI API key environment variable"), {
+    fireEvent.change(screen.getByLabelText("OpenAI API key"), {
+      target: { value: "direct-secret" },
+    });
+    fireEvent.change(screen.getByLabelText("OpenAI API key 环境变量"), {
       target: { value: "OPENAI_PROXY_KEY" },
     });
     fireEvent.change(screen.getByLabelText("OpenAI Anthropic URL"), {
       target: { value: "https://anthropic.proxy.example" },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Save OpenAI provider" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存 OpenAI 模型服务商" }));
 
     await waitFor(() => {
       expect(api.updateProviderControl).toHaveBeenCalledWith("openai", {
+        display_name: "OpenAI",
+        description: "主力 Provider",
         enabled: false,
         api_base_url: "https://proxy.example/v1",
         protocol: "openai-compatible",
         api_key_env: "OPENAI_PROXY_KEY",
+        api_key: "direct-secret",
         anthropic_api_base_url: "https://anthropic.proxy.example",
       });
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Test OpenAI connection" }));
+    fireEvent.click(screen.getByRole("button", { name: "测试 OpenAI 连接" }));
 
     await waitFor(() => {
       expect(api.testProviderConnection).toHaveBeenCalledWith("openai");
     });
-    expect(await screen.findByText("connected: Connection OK")).toBeInTheDocument();
+    expect(await screen.findByText("已连接：连接正常")).toBeInTheDocument();
   });
 
   it("renders GitHub and approval panels and can approve a pending task", async () => {
@@ -392,24 +454,24 @@ describe("App workspace shell", () => {
       expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "github" }));
-    expect(await screen.findByText("GitHub Context")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "GitHub" }));
+    expect(await screen.findByText("GitHub 上下文")).toBeInTheDocument();
     expect(screen.getByText("openai/openai-python")).toBeInTheDocument();
     expect(screen.getByText("Issue #123")).toBeInTheDocument();
     expect(screen.getByText("PR #9")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "academic" }));
-    expect(await screen.findByText("Academic Context")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "论文" }));
+    expect(await screen.findByText("论文上下文")).toBeInTheDocument();
     expect(screen.getByText("Example Journal")).toBeInTheDocument();
-    expect(screen.getByText("Reference paper 1")).toBeInTheDocument();
+    expect(screen.getByText("参考论文 1")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "approval" }));
-    expect(await screen.findByText("Needs approval before write actions.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "审批" }));
+    expect(await screen.findByText("写入操作前需要审批。")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Approve and continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "批准并继续" }));
 
     await waitFor(() => {
-      expect(api.approveTask).toHaveBeenCalledWith("task-1", "Approved from workspace");
+      expect(api.approveTask).toHaveBeenCalledWith("task-1", "从工作台批准。");
     });
   });
 });
