@@ -224,6 +224,7 @@ export function submitTask(payload: {
   journal_name?: string | null;
   journal_url?: string | null;
   reference_paper_urls?: string[];
+  role_model_overrides?: Record<string, string>;
   metadata?: Record<string, unknown>;
 }): Promise<TaskResult> {
   return requestJson<TaskResult>("/tasks", {

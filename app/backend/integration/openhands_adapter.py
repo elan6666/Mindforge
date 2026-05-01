@@ -85,6 +85,7 @@ class OpenHandsAdapter:
 
     def _run_model_api(self, payload: dict[str, Any]) -> AdapterResult:
         """Execute a task through an OpenAI-compatible model provider endpoint."""
+        from app.backend.services.model_loader import load_provider_secrets
         from app.backend.services.model_registry_service import get_model_registry_service
 
         provider_id = str(payload.get("provider_id") or "")
@@ -136,7 +137,8 @@ class OpenHandsAdapter:
             provider.metadata.get("api_key_env")
             or f"{provider_id.upper().replace('-', '_')}_API_KEY"
         )
-        api_key = os.getenv(api_key_env)
+        secrets = load_provider_secrets()
+        api_key = secrets.api_keys.get(provider_id) or os.getenv(api_key_env)
         if not api_key:
             return AdapterResult(
                 status="failed",

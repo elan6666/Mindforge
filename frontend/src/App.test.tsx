@@ -379,6 +379,36 @@ describe("App workspace shell", () => {
     expect(screen.queryByText("GitHub 仓库")).not.toBeInTheDocument();
   });
 
+  it("submits selected model as role overrides for multi-agent presets", async () => {
+    render(<App />);
+
+    await waitFor(() => {
+      expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
+    });
+
+    fireEvent.change(screen.getByLabelText("协调模型"), {
+      target: { value: "gpt-5.4" },
+    });
+    fireEvent.change(screen.getByLabelText("任务描述"), {
+      target: { value: "请验证模型路由" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "提交任务" }));
+
+    await waitFor(() => {
+      expect(api.submitTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model_override: "gpt-5.4",
+          role_model_overrides: {
+            "project-manager": "gpt-5.4",
+            backend: "gpt-5.4",
+            frontend: "gpt-5.4",
+            reviewer: "gpt-5.4",
+          },
+        }),
+      );
+    });
+  });
+
   it("switches into model control and rule template views", async () => {
     render(<App />);
 

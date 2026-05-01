@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import requests
@@ -149,3 +150,52 @@ def test_model_api_mode_calls_openai_compatible_endpoint(monkeypatch):
     assert result.provider == "model-api:volces-ark"
     assert result.output == "model api ok"
     assert result.metadata["usage"]["total_tokens"] == 12
+
+
+def test_model_api_mode_uses_saved_provider_secret(tmp_path, monkeypatch):
+    adapter = OpenHandsAdapter(make_settings(openhands_mode="model-api"))
+    monkeypatch.delenv("ARK_API_KEY", raising=False)
+
+    secrets_path = tmp_path / "provider_secrets.json"
+    secrets_path.write_text(
+        json.dumps({"api_keys": {"volces-ark": "saved-secret"}}),
+        encoding="utf-8",
+    )
+
+    from app.backend.services import model_loader
+
+    monkeypatch.setattr(model_loader, "PROVIDER_SECRETS_PATH", secrets_path)
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "saved secret ok",
+                        }
+                    }
+                ]
+            }
+
+    def fake_post(url, headers, json, timeout):
+        assert headers["Authorization"] == "Bearer saved-secret"
+        return FakeResponse()
+
+    monkeypatch.setattr(requests, "post", fake_post)
+
+    result = adapter.run_task(
+        {
+            "prompt": "ping",
+            "model": "doubao-seed-2.0-lite",
+            "provider_id": "volces-ark",
+        }
+    )
+
+    assert result.status == "completed"
+    assert result.output == "saved secret ok"

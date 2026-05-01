@@ -94,6 +94,19 @@ const PRESET_FIELD_CONFIGS: Record<string, PresetFieldConfig> = {
   },
 };
 
+const PRESET_ROLE_OVERRIDES: Record<string, string[]> = {
+  "code-engineering": ["project-manager", "backend", "frontend", "reviewer"],
+  "code-review": ["reviewer", "security-reviewer"],
+  "doc-organize": ["documenter", "editor"],
+  "paper-revision": [
+    "standards-editor",
+    "reviser",
+    "style-reviewer",
+    "content-reviewer",
+    "final-reviewer",
+  ],
+};
+
 const NAV_ITEMS: Array<{
   id: string;
   label: string;
@@ -256,6 +269,16 @@ function splitCommaList(value: string): string[] {
 
 function presetFieldConfig(presetMode: string): PresetFieldConfig {
   return PRESET_FIELD_CONFIGS[presetMode] || PRESET_FIELD_CONFIGS.default;
+}
+
+function buildRoleModelOverrides(
+  presetMode: string,
+  modelId: string,
+): Record<string, string> | undefined {
+  if (!modelId) return undefined;
+  const roles = PRESET_ROLE_OVERRIDES[presetMode] || [];
+  if (roles.length === 0) return undefined;
+  return Object.fromEntries(roles.map((role) => [role, modelId]));
 }
 
 function createEmptyProviderDraft(): ProviderCreateRequest {
@@ -529,6 +552,7 @@ export function App() {
         repo_path: fieldConfig.showRepoPath ? repoPath || undefined : undefined,
         task_type: taskType || undefined,
         model_override: modelOverride || undefined,
+        role_model_overrides: buildRoleModelOverrides(presetMode, modelOverride),
         rule_template_id: ruleTemplateId || undefined,
         github_repo: fieldConfig.showGitHub ? githubRepo || undefined : undefined,
         github_issue_number:
