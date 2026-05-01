@@ -14,6 +14,7 @@ app/model_control/*.local.json
 app/model_control/*_local.json
 
 # Local planning drafts and temporary workspaces.
+.planning/
 .planning/quick/
 .planning/workspaces/
 .planning/local/

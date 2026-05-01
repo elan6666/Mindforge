@@ -1,177 +1,221 @@
+<p align="center">
+  <img src="assets/social-preview.png" alt="Mindforge social preview" width="100%" />
+</p>
+
 # Mindforge
 
-Mindforge 是一个基于 OpenHands 架构思路二次开发的多 Agent 助手项目。当前仓库不是直接嵌入完整 OpenHands 运行时，而是先保留清晰的 `OpenHandsAdapter` 边界，在其上实现 Mindforge 自己的任务入口、Preset、模型路由、规则模板、审批、历史、GitHub 只读上下文和论文修改模式。
+> A multi-agent workspace for coding, research writing, model routing, and controllable task orchestration.
 
-## 当前能力
+Mindforge is an open-source multi-agent assistant workspace. It gives users a web app for running role-based AI teams, managing model providers, routing tasks across models, reviewing execution history, and keeping human approval in the loop.
 
-- Phase 1: FastAPI 后端、统一任务接口、OpenHands adapter 边界。
-- Phase 2: YAML Preset 中心和 `/api/presets`。
-- Phase 3: `code-engineering` 多角色串行编排。
-- Phase 4: 本地仓库扫描和 `repo_analysis` 上下文注入。
-- Phase 5: provider/model registry、模型路由、显式模型 override。
-- Phase 6: React + Vite Web App 工作台。
-- Phase 7: 前端模型控制中心、规则模板、角色到模型分配。
-- Phase 8: 审批、SQLite 历史、阶段日志。
-- Phase 9: GitHub 仓库、Issue、PR 只读上下文。
-- Phase 10: 学术论文修改模式、期刊规范/参考论文上下文、审稿循环、Ark/Doubao OpenAI-compatible 测试通道。
-- Phase 11: Provider/API 管理中心、非敏感 provider overrides、API key env 状态、连接测试。
+Mindforge is inspired by OpenHands-style agent architecture, but it focuses on the product orchestration layer: presets, role assignment, provider/model control, conversation threads, approval history, and task-specific workflows such as code engineering and academic paper revision.
 
-## 标杆约束
+## Highlights
 
-- Codex / Claude Code 是工程执行标准：要能读代码库、改多文件、跑测试、解释结果，并交付可审查变更。
-- OpenHands 是架构参考：runtime 边界、agent/action/observation、skills、repo instructions。
-- Mindforge 是产品编排层：Preset、多 Agent、多模型、多 provider routing、规则模板、审批历史、论文/研发双模式。
+- **Chat-first task workspace**: start a task like a normal conversation, continue with follow-up turns, and keep context inside one conversation thread.
+- **Preset-based multi-agent teams**: instantiate workflows such as code engineering or paper revision, with different agents responsible for planning, backend, frontend, review, style, or content quality.
+- **Model control center**: add your own providers and models, configure priority levels, disable models, and route different roles to different models.
+- **OpenAI-compatible provider support**: use OpenAI-compatible endpoints, including custom providers and self-managed API keys.
+- **Execution visibility**: inspect task history, orchestration stages, approvals, outputs, metadata, GitHub context, and attached files.
+- **Human approval gates**: mark risky tasks for approval before execution.
+- **Research and paper workflows**: support journal guidelines, reference papers, revision, reviewer-style feedback, and iterative improvement.
 
-## 和 OpenHands 的关系
+## Screenshots
 
-Mindforge 目前主要学习和复用 OpenHands 的架构方向，而不是把整个 OpenHands runtime 直接搬进来。
+Mindforge uses a web workspace with a chat composer, task configuration drawer, provider/model settings, rule templates, and task history.
 
-- `app/backend/integration/openhands_adapter.py` 是运行时适配边界。
-- `mock` 模式用于本地稳定演示。
-- `http` 模式保留给 OpenHands-compatible HTTP 服务。
-- `model-api` 模式用于 OpenAI-compatible 模型接口测试。
-- Preset、规则模板、模型控制、论文修改流程属于 Mindforge 产品层。
-
-后续如果接入真实 OpenHands 服务，Mindforge 应继续保留自己的产品层，把更底层的执行能力逐步切到真实运行时，而不是推倒重写。
-
-## 论文修改流程
-
-```mermaid
-flowchart TD
-    A["用户提交 paper-revision 任务"] --> B["解析 preset 和规则模板"]
-    B --> C["收集期刊规范和参考论文摘要"]
-    C --> D["Standards Editor: 总结投稿标准和文风要求"]
-    D --> E["Reviser: 生成修改稿"]
-    E --> F["Style Reviewer: 审查文风和表达"]
-    F --> G["Content Reviewer: 审查内容、逻辑和证据"]
-    G --> H["Reviser: 根据审稿意见迭代"]
-    H --> I["Final Reviewer: 终审和剩余风险检查"]
-    I --> J["保存输出、阶段轨迹和 metadata"]
+```text
+User request
+   ↓
+Preset + model routing
+   ↓
+Role-based agent orchestration
+   ↓
+Execution trace + review + history
+   ↓
+Follow-up conversation with context
 ```
 
-`paper-revision` 支持这些输入：
+## When To Use Mindforge
 
-- `journal_name`
-- `journal_url`
-- `reference_paper_urls`
-- `rule_template_id`
-- `model_override`
-- `role_model_overrides`
+- You want AI agents to work as a configurable team instead of a single chatbot.
+- You need different models for different roles, such as a coordinator, coder, reviewer, or writing editor.
+- You want a web app that makes agent work inspectable: history, logs, approvals, outputs, and task metadata.
+- You are building coding workflows, document workflows, or academic paper revision workflows.
+- You want an OpenHands-inspired runtime boundary without locking the product layer to one execution backend.
 
-默认论文模式现在使用 `doubao-seed-2.0-lite`，并通过 `volces-ark` provider 走 OpenAI-compatible endpoint。
+## Architecture
 
-## 本地启动
+Mindforge is intentionally split into a product layer and an execution boundary.
 
-安装后端依赖：
+- **Frontend**: React + TypeScript workspace for conversations, task configuration, model management, templates, history, and approvals.
+- **Backend**: FastAPI service for task submission, provider/model registry, orchestration, GitHub context, approval gates, and history persistence.
+- **Runtime boundary**: `OpenHandsAdapter` keeps execution replaceable. The current modes support local mock execution, OpenAI-compatible model API calls, and an HTTP runtime bridge.
+- **Persistence**: SQLite-backed task and conversation history for local development.
+
+## Quick Start
+
+### Backend
 
 ```powershell
-python -m pip install -e .
+python -m uvicorn app.backend.main:app --host 127.0.0.1 --port 8000
 ```
 
-启动后端：
+### Frontend
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run_local_demo.ps1
-```
-
-启动前端：
-
-```powershell
-cd .\frontend
+cd frontend
 npm install
 npm run dev
 ```
 
-默认地址：
+Open:
 
-```text
-Backend: http://127.0.0.1:8000
-Frontend: http://127.0.0.1:5173
-```
+- Frontend: `http://127.0.0.1:5173`
+- Backend health check: `http://127.0.0.1:8000/api/health`
 
-## Ark/Doubao 测试
+## Configuration
 
-不要把 API key 写入仓库。只在当前 shell 设置环境变量：
+For local mock execution:
 
 ```powershell
-$env:ARK_API_KEY = "<your-ark-api-key>"
+$env:OPENHANDS_MODE = "mock"
+$env:VITE_API_BASE_URL = "http://127.0.0.1:8000/api"
+```
+
+For OpenAI-compatible model API execution:
+
+```powershell
 $env:OPENHANDS_MODE = "model-api"
+$env:ARK_API_KEY = "your-local-secret"
 ```
 
-模型配置已经在 `app/model_registry/catalog.yaml` 中注册：
+Do not commit real API keys. Use environment variables or the local provider secret store.
 
-```text
-provider: volces-ark
-model: doubao-seed-2.0-lite
-OpenAI-compatible base URL: https://ark.cn-beijing.volces.com/api/coding/v3
-Anthropic-compatible base URL: https://ark.cn-beijing.volces.com/api/coding
-```
-
-## 示例请求
-
-提交代码工程任务：
+## Verification
 
 ```powershell
-$body = @{
-  prompt = "Plan backend work for adding login."
-  preset_mode = "code-engineering"
-  repo_path = "."
-} | ConvertTo-Json
+python -m pytest
 
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8000/api/tasks `
-  -ContentType "application/json" `
-  -Body $body
-```
-
-提交论文修改任务：
-
-```powershell
-$body = @{
-  prompt = "Revise this abstract for a formal journal submission."
-  preset_mode = "paper-revision"
-  task_type = "writing"
-  journal_name = "Example Journal"
-  journal_url = "https://journal.example/guidelines"
-  reference_paper_urls = @("https://paper.example/reference")
-} | ConvertTo-Json
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8000/api/tasks `
-  -ContentType "application/json" `
-  -Body $body
-```
-
-## 常用 API
-
-- `GET /api/health`
-- `POST /api/tasks`
-- `GET /api/presets`
-- `GET /api/providers`
-- `GET /api/models`
-- `GET /api/control/models`
-- `GET /api/control/providers`
-- `PUT /api/control/providers/{provider_id}`
-- `POST /api/control/providers/{provider_id}/test`
-- `GET /api/control/rule-templates`
-- `GET /api/history/tasks`
-- `GET /api/history/tasks/{task_id}`
-- `GET /api/approvals/pending`
-- `POST /api/approvals/{task_id}/approve`
-- `POST /api/approvals/{task_id}/reject`
-- `GET /api/github/repositories/{owner}/{repo}`
-- `GET /api/github/repositories/{owner}/{repo}/issues/{issue_number}`
-- `GET /api/github/repositories/{owner}/{repo}/pulls/{pr_number}`
-
-## 测试
-
-```powershell
-python -m pytest -q
-cd .\frontend
+cd frontend
 npm run test
 npm run build
-cd ..
-python -m compileall app
 ```
+
+## Suggested GitHub Topics
+
+`multi-agent`, `ai-agents`, `llm`, `agent-orchestration`, `developer-tools`, `coding-agent`, `openhands`, `model-routing`, `fastapi`, `react`, `typescript`, `openai-compatible`, `academic-writing`, `workflow-automation`
+
+## Roadmap
+
+- Real OpenHands runtime integration.
+- Richer skills and repository instruction support.
+- Safer long-running task recovery.
+- More visual diff, approval, and execution review tools.
+- Team/workspace sharing and deployment hardening.
+
+## License
+
+License information has not been finalized yet.
+
+---
+
+# Mindforge 中文说明
+
+> 面向代码工程、论文修改、多模型路由和可控编排的多 Agent 工作台。
+
+Mindforge 是一个开源多 Agent 助手工作台。它提供一个 Web App，让用户可以创建角色化 AI 团队、管理模型服务商、为不同 Agent 分配不同模型、查看执行历史，并在高风险任务前加入人工审批。
+
+Mindforge 参考了 OpenHands 这类 Agent 系统的架构思路，但重点不是照搬底层运行时，而是构建产品编排层：预设模式、角色分工、模型路由、Provider/API 管理、连续对话、审批历史，以及代码工程和论文修改等场景化工作流。
+
+## 主要能力
+
+- **对话式任务工作台**：像聊天一样提交任务，也可以在同一个对话里连续追问，并保留上下文。
+- **预设式多 Agent 团队**：例如代码工程、论文修改等模式，不同 Agent 负责规划、后端、前端、审查、文风或内容质量。
+- **模型控制中心**：用户可以添加自己的模型和服务商，设置高/中/低/禁用优先级，并把不同角色路由到不同模型。
+- **兼容 OpenAI 协议的 Provider**：支持自定义 OpenAI-compatible 接口和本地 API key 管理。
+- **执行过程可观察**：查看任务历史、编排阶段、审批、输出、元数据、GitHub 上下文和附件信息。
+- **人工审批机制**：高风险任务可以先进入审批，再继续执行。
+- **论文修改工作流**：支持期刊投稿指南、参考论文、内容修改、审稿人式反馈和迭代润色。
+
+## 适合谁使用
+
+- 你希望 AI 不是单个聊天机器人，而是一个可配置的 Agent 团队。
+- 你需要让不同角色使用不同模型，例如协调者、程序员、审查者、论文修改者。
+- 你希望 Agent 的工作过程可追踪、可审查、可回看。
+- 你在构建代码工程、文档整理、论文修改或研究辅助工作流。
+- 你想参考 OpenHands 的架构方向，但保留自己的产品层和编排层。
+
+## 架构概览
+
+Mindforge 被拆成产品层和运行时边界。
+
+- **前端**：React + TypeScript，用于对话、任务配置、模型管理、规则模板、历史和审批。
+- **后端**：FastAPI，用于任务提交、模型注册、Provider 管理、多 Agent 编排、GitHub 上下文、审批和历史持久化。
+- **运行时边界**：`OpenHandsAdapter` 保持底层执行可替换，目前支持 mock、本地模型 API 调用和 HTTP runtime bridge。
+- **本地持久化**：使用 SQLite 保存任务和对话历史。
+
+## 快速启动
+
+### 后端
+
+```powershell
+python -m uvicorn app.backend.main:app --host 127.0.0.1 --port 8000
+```
+
+### 前端
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+访问：
+
+- 前端：`http://127.0.0.1:5173`
+- 后端健康检查：`http://127.0.0.1:8000/api/health`
+
+## 配置
+
+本地 mock 模式：
+
+```powershell
+$env:OPENHANDS_MODE = "mock"
+$env:VITE_API_BASE_URL = "http://127.0.0.1:8000/api"
+```
+
+调用 OpenAI-compatible 模型接口：
+
+```powershell
+$env:OPENHANDS_MODE = "model-api"
+$env:ARK_API_KEY = "你的本地密钥"
+```
+
+不要把真实 API key 提交到仓库。请使用环境变量或本地 Provider secret 存储。
+
+## 验证
+
+```powershell
+python -m pytest
+
+cd frontend
+npm run test
+npm run build
+```
+
+## 建议的 GitHub Topics
+
+`multi-agent`, `ai-agents`, `llm`, `agent-orchestration`, `developer-tools`, `coding-agent`, `openhands`, `model-routing`, `fastapi`, `react`, `typescript`, `openai-compatible`, `academic-writing`, `workflow-automation`
+
+## 后续方向
+
+- 接入真实 OpenHands runtime。
+- 增强 skills 和 repository instructions。
+- 强化长任务恢复和失败处理。
+- 增加 diff、审批和执行审查工具。
+- 支持团队协作、部署和生产化安全加固。
+
+## License
+
+许可证尚未最终确定。
