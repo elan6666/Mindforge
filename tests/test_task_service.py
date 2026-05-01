@@ -158,21 +158,19 @@ def test_submit_includes_requested_skills_metadata_and_prompt_context(tmp_path):
     assert "- gsd-do" in response.data.output
 
 
-def test_lightweight_greeting_does_not_trigger_code_orchestration(tmp_path):
+def test_greeting_uses_adapter_boundary_not_local_preset_response(tmp_path):
     service = make_service(tmp_path, openhands_mode="mock")
 
-    response = service.submit(
-        TaskRequest(prompt="你好", preset_mode="code-engineering")
-    )
+    response = service.submit(TaskRequest(prompt="你好"))
 
     assert response.status == "completed"
-    assert response.data.provider == "mindforge-intake"
-    assert response.data.metadata["execution_mode"] == "plain-chat"
-    assert "orchestration" not in response.data.metadata
+    assert response.data.provider == "mock-openhands"
+    assert response.data.metadata["resolved_preset_mode"] == "default"
     assert "你好" in response.data.output
+    assert "mindforge-intake" not in response.data.provider
 
 
-def test_lightweight_date_question_does_not_expose_mock_adapter(tmp_path):
+def test_date_question_uses_adapter_boundary_with_conversation_context(tmp_path):
     service = make_service(tmp_path, openhands_mode="mock")
 
     response = service.submit(
@@ -189,22 +187,22 @@ def test_lightweight_date_question_does_not_expose_mock_adapter(tmp_path):
     )
 
     assert response.status == "completed"
-    assert response.data.provider == "mindforge-intake"
-    assert response.data.metadata["lightweight_intent"] == "date"
-    assert "今天是" in response.data.output
-    assert "[mock-openhands]" not in response.data.output
+    assert response.data.provider == "mock-openhands"
+    assert "Conversation so far:" in response.data.output
+    assert "Current user request:" in response.data.output
+    assert "今天几号" in response.data.output
+    assert "mindforge-intake" not in response.data.provider
 
 
-def test_lightweight_capability_question_does_not_expose_mock_adapter(tmp_path):
+def test_capability_question_uses_adapter_boundary_not_local_preset_response(tmp_path):
     service = make_service(tmp_path, openhands_mode="mock")
 
     response = service.submit(TaskRequest(prompt="你能做什么"))
 
     assert response.status == "completed"
-    assert response.data.provider == "mindforge-intake"
-    assert response.data.metadata["lightweight_intent"] == "capability"
-    assert "代码工程任务" in response.data.output
-    assert "[mock-openhands]" not in response.data.output
+    assert response.data.provider == "mock-openhands"
+    assert "你能做什么" in response.data.output
+    assert "mindforge-intake" not in response.data.provider
 
 
 def test_submit_unknown_preset_returns_failed_response(tmp_path):

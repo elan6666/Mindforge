@@ -60,6 +60,7 @@ def isolated_model_control_storage(tmp_path, monkeypatch):
 def isolated_history_storage(tmp_path, monkeypatch):
     db_path = tmp_path / "mindforge-test.db"
     monkeypatch.setenv("SQLITE_DB_PATH", str(db_path))
+    monkeypatch.setenv("OPENHANDS_MODE", "mock")
     clear_settings_cache()
     clear_history_service_cache()
     clear_approval_service_cache()
@@ -210,7 +211,7 @@ def test_tasks_endpoint_returns_mock_openhands_response(isolated_history_storage
     assert body["data"]["metadata"]["task_model_selection"]["model_id"] == "gpt-5.4"
 
 
-def test_tasks_endpoint_handles_lightweight_chat_without_mock_trace(
+def test_tasks_endpoint_routes_chat_to_adapter_without_local_preset_answer(
     isolated_history_storage,
 ):
     client = TestClient(create_app())
@@ -233,10 +234,10 @@ def test_tasks_endpoint_handles_lightweight_chat_without_mock_trace(
     body = response.json()
 
     assert response.status_code == 200
-    assert body["data"]["provider"] == "mindforge-intake"
-    assert body["data"]["metadata"]["lightweight_intent"] == "capability"
-    assert "代码工程任务" in body["data"]["output"]
-    assert "[mock-openhands]" not in body["data"]["output"]
+    assert body["data"]["provider"] == "mock-openhands"
+    assert body["data"]["metadata"]["resolved_preset_mode"] == "default"
+    assert "你能做什么" in body["data"]["output"]
+    assert "mindforge-intake" not in body["data"]["provider"]
 
 
 def test_tasks_endpoint_persists_composer_metadata_to_history(isolated_history_storage):

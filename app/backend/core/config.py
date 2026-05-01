@@ -29,7 +29,7 @@ class Settings(BaseSettings):
         ]
     )
     openhands_mode: str = Field(
-        default="mock",
+        default="model-api",
         description="Execution mode for the OpenHands adapter: mock, http, model-api, or disabled.",
     )
     openhands_base_url: str | None = Field(
