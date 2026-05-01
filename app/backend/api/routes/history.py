@@ -31,3 +31,19 @@ def get_history_task_detail(
             detail=f"Unknown task '{task_id}'.",
         )
     return detail
+
+
+@router.get("/conversations/{conversation_id}/tasks", response_model=list[TaskHistoryDetail])
+def list_conversation_task_details(
+    conversation_id: str,
+    limit: int = Query(default=200, ge=1, le=500),
+    service: HistoryService = Depends(get_history_service),
+) -> list[TaskHistoryDetail]:
+    """Return all persisted task turns for one conversation."""
+    details = service.list_conversation_tasks(conversation_id, limit=limit)
+    if not details:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown conversation '{conversation_id}'.",
+        )
+    return details

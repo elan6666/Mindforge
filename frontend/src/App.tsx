@@ -7,6 +7,7 @@ import {
   deleteModelControl,
   deleteProviderControl,
   deleteRuleTemplate,
+  fetchConversationHistory,
   fetchEditableModels,
   fetchHistoryTasks,
   fetchModels,
@@ -428,6 +429,74 @@ function hydrateConversationFromDetail(detail: TaskHistoryDetail): {
   return { conversationId, messages };
 }
 
+function hydrateConversationFromDetails(details: TaskHistoryDetail[]): {
+  conversationId: string;
+  activeDetail: TaskHistoryDetail | null;
+  messages: ChatMessage[];
+} {
+  const sortedDetails = [...details].sort(
+    (left, right) =>
+      new Date(left.created_at).getTime() - new Date(right.created_at).getTime(),
+  );
+  const messages: ChatMessage[] = [];
+  const seen = new Set<string>();
+  for (const detail of sortedDetails) {
+    const userSignature = `user:${detail.task_id}:${detail.prompt}`;
+    if (detail.prompt.trim() && !seen.has(userSignature)) {
+      seen.add(userSignature);
+      messages.push({
+        id: `${detail.task_id}-user`,
+        role: "user",
+        content: detail.prompt,
+        taskId: detail.task_id,
+        createdAt: detail.created_at,
+        status: detail.status,
+      });
+    }
+    const assistantContent = detail.output || detail.error_message || detail.message;
+    const assistantSignature = `assistant:${detail.task_id}:${assistantContent}`;
+    if (assistantContent.trim() && !seen.has(assistantSignature)) {
+      seen.add(assistantSignature);
+      messages.push({
+        id: `${detail.task_id}-assistant`,
+        role: "assistant",
+        content: assistantContent,
+        taskId: detail.task_id,
+        createdAt: detail.updated_at,
+        status: detail.status,
+      });
+    }
+  }
+  const activeDetail = sortedDetails[sortedDetails.length - 1] || null;
+  if (!activeDetail) {
+    return {
+      conversationId: createClientId("conversation"),
+      activeDetail: null,
+      messages: [],
+    };
+  }
+  return {
+    conversationId: hydrateConversationFromDetail(activeDetail).conversationId,
+    activeDetail,
+    messages,
+  };
+}
+
+function groupHistoryConversations(items: TaskHistorySummary[]): TaskHistorySummary[] {
+  const grouped = new Map<string, TaskHistorySummary>();
+  const sortedItems = [...items].sort(
+    (left, right) =>
+      new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
+  );
+  for (const item of sortedItems) {
+    const key = item.conversation_id || `task:${item.task_id}`;
+    if (!grouped.has(key)) {
+      grouped.set(key, item);
+    }
+  }
+  return Array.from(grouped.values());
+}
+
 function createEmptyTemplate(presetMode = "code-engineering"): RuleTemplateSummary {
   return {
     template_id: "new-template",
@@ -669,6 +738,37 @@ export function App() {
   const selectedRuleTemplateName =
     filteredTemplates.find((template) => template.template_id === ruleTemplateId)?.display_name ||
     "自动选择";
+  const conversationHistoryItems = useMemo(
+    () => groupHistoryConversations(historyItems),
+    [historyItems],
+  );
+
+  async function loadConversationFromTask(taskId: string): Promise<{
+    activeDetail: TaskHistoryDetail;
+    conversationId: string;
+    messages: ChatMessage[];
+  }> {
+    const detail = await fetchTaskHistoryDetail(taskId);
+    const hydratedSingle = hydrateConversationFromDetail(detail);
+    try {
+      const details = await fetchConversationHistory(hydratedSingle.conversationId);
+      const hydratedConversation = hydrateConversationFromDetails(details);
+      if (hydratedConversation.activeDetail) {
+        return {
+          activeDetail: hydratedConversation.activeDetail,
+          conversationId: hydratedConversation.conversationId,
+          messages: hydratedConversation.messages,
+        };
+      }
+    } catch {
+      // Older history rows may not have conversation metadata; fall back to one task.
+    }
+    return {
+      activeDetail: detail,
+      conversationId: hydratedSingle.conversationId,
+      messages: hydratedSingle.messages,
+    };
+  }
 
   async function refreshHistory(nextActiveTaskId?: string | null) {
     const statusQuery = historyFilter === "all" ? undefined : historyFilter;
@@ -681,15 +781,14 @@ export function App() {
     const targetTaskId =
       nextActiveTaskId ||
       activeTaskId ||
-      history[0]?.task_id ||
+      groupHistoryConversations(history)[0]?.task_id ||
       null;
     if (targetTaskId) {
-      const detail = await fetchTaskHistoryDetail(targetTaskId);
-      const hydratedConversation = hydrateConversationFromDetail(detail);
-      setActiveTaskId(targetTaskId);
-      setActiveTaskDetail(detail);
-      setConversationId(hydratedConversation.conversationId);
-      setConversationMessages(hydratedConversation.messages);
+      const loadedConversation = await loadConversationFromTask(targetTaskId);
+      setActiveTaskId(loadedConversation.activeDetail.task_id);
+      setActiveTaskDetail(loadedConversation.activeDetail);
+      setConversationId(loadedConversation.conversationId);
+      setConversationMessages(loadedConversation.messages);
     } else {
       setActiveTaskId(null);
       setActiveTaskDetail(null);
@@ -840,12 +939,11 @@ export function App() {
   }
 
   async function handleHistorySelect(taskId: string) {
-    const detail = await fetchTaskHistoryDetail(taskId);
-    const hydratedConversation = hydrateConversationFromDetail(detail);
-    setActiveTaskId(taskId);
-    setActiveTaskDetail(detail);
-    setConversationId(hydratedConversation.conversationId);
-    setConversationMessages(hydratedConversation.messages);
+    const loadedConversation = await loadConversationFromTask(taskId);
+    setActiveTaskId(loadedConversation.activeDetail.task_id);
+    setActiveTaskDetail(loadedConversation.activeDetail);
+    setConversationId(loadedConversation.conversationId);
+    setConversationMessages(loadedConversation.messages);
     setActiveTab("output");
     setView("workspace");
     setActiveNavId("history");
@@ -2888,7 +2986,7 @@ export function App() {
 
         <section className="sidebar-section">
           <div className="panel-title-row history-toolbar">
-            <div className="sidebar-heading">最近任务</div>
+            <div className="sidebar-heading">最近对话</div>
             <select
               className="history-filter"
               value={historyFilter}
@@ -2902,19 +3000,24 @@ export function App() {
             </select>
           </div>
           <div className="history-list">
-            {historyItems.length === 0 ? (
-              <div className="empty-hint">暂无历史任务。</div>
+            {conversationHistoryItems.length === 0 ? (
+              <div className="empty-hint">暂无历史对话。</div>
             ) : (
-              historyItems.map((task) => (
+              conversationHistoryItems.map((task) => (
                 <button
-                  key={task.task_id}
+                  key={task.conversation_id || task.task_id}
                   type="button"
-                  className={`history-item ${task.task_id === activeTaskId ? "active" : ""}`}
+                  className={`history-item ${
+                    task.task_id === activeTaskId || task.conversation_id === conversationId
+                      ? "active"
+                      : ""
+                  }`}
                   onClick={() => void handleHistorySelect(task.task_id)}
                 >
                   <span>{formatTitle(task.prompt)}</span>
                   <small>
                     {formatStatus(task.status)} / {formatDate(task.updated_at)}
+                    {task.conversation_turn_count ? ` / ${task.conversation_turn_count} 轮` : ""}
                   </small>
                 </button>
               ))
@@ -2961,7 +3064,7 @@ export function App() {
             <span className="pill">{customModels.length} 个模型</span>
             <span className="pill">{providers.length} 个模型服务商</span>
             <span className="pill">{ruleTemplates.length} 个模板</span>
-            <span className="pill">{historyItems.length} 个最近任务</span>
+            <span className="pill">{conversationHistoryItems.length} 个最近对话</span>
           </div>
         </header>
 

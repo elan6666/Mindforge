@@ -22,6 +22,7 @@ vi.mock("./lib/api", () => ({
   deleteModelControl: vi.fn(),
   deleteProviderControl: vi.fn(),
   deleteRuleTemplate: vi.fn(),
+  fetchConversationHistory: vi.fn(),
   fetchEditableModels: vi.fn(),
   fetchHistoryTasks: vi.fn(),
   fetchModels: vi.fn(),
@@ -287,6 +288,7 @@ function setupApiMocks() {
   vi.mocked(api.fetchHistoryTasks).mockResolvedValue(historyItems);
   vi.mocked(api.fetchPendingApprovals).mockResolvedValue([approval]);
   vi.mocked(api.fetchTaskHistoryDetail).mockResolvedValue(historyDetail);
+  vi.mocked(api.fetchConversationHistory).mockResolvedValue([historyDetail]);
   vi.mocked(api.approveTask).mockResolvedValue(approvalResult);
   vi.mocked(api.rejectTask).mockResolvedValue({
     ...approvalResult,
@@ -441,6 +443,11 @@ describe("App workspace shell", () => {
     const submittedDetails: Record<string, TaskHistoryDetail> = {};
     vi.mocked(api.fetchTaskHistoryDetail).mockImplementation(async (taskId) => {
       return submittedDetails[taskId] || historyDetail;
+    });
+    vi.mocked(api.fetchConversationHistory).mockImplementation(async (conversationId) => {
+      return Object.values(submittedDetails).filter(
+        (detail) => detail.metadata.conversation_id === conversationId,
+      );
     });
     let submissionIndex = 0;
     vi.mocked(api.submitTask).mockImplementation(async (payload) => {

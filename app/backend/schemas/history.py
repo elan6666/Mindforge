@@ -20,6 +20,8 @@ class TaskHistorySummary(BaseModel):
     updated_at: str
     requires_approval: bool = False
     approval_status: str | None = None
+    conversation_id: str | None = None
+    conversation_turn_count: int | None = None
 
 
 class StageHistoryRecord(BaseModel):

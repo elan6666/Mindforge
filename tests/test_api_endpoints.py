@@ -292,6 +292,60 @@ def test_tasks_endpoint_persists_conversation_context_to_history(isolated_histor
     )
 
 
+def test_history_endpoint_groups_conversation_task_turns(isolated_history_storage):
+    client = TestClient(create_app())
+
+    first_response = client.post(
+        "/api/tasks",
+        json={
+            "prompt": "First turn",
+            "conversation_id": "conversation-history-1",
+        },
+    )
+    second_response = client.post(
+        "/api/tasks",
+        json={
+            "prompt": "Second turn",
+            "conversation_id": "conversation-history-1",
+            "conversation_history": [
+                {"role": "user", "content": "First turn"},
+                {
+                    "role": "assistant",
+                    "content": first_response.json()["data"]["output"],
+                },
+            ],
+        },
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+
+    list_response = client.get("/api/history/tasks")
+    list_body = list_response.json()
+    assert list_response.status_code == 200
+    conversation_rows = [
+        item
+        for item in list_body
+        if item["conversation_id"] == "conversation-history-1"
+    ]
+    assert len(conversation_rows) == 2
+    assert {item["conversation_turn_count"] for item in conversation_rows} == {1, 3}
+
+    conversation_response = client.get(
+        "/api/history/conversations/conversation-history-1/tasks"
+    )
+    conversation_body = conversation_response.json()
+
+    assert conversation_response.status_code == 200
+    assert [item["prompt"] for item in conversation_body] == [
+        "First turn",
+        "Second turn",
+    ]
+    assert conversation_body[1]["metadata"]["conversation_id"] == (
+        "conversation-history-1"
+    )
+
+
 def test_tasks_endpoint_returns_structured_400_for_unknown_preset(isolated_history_storage):
     client = TestClient(create_app())
 

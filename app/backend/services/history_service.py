@@ -148,20 +148,25 @@ class HistoryService:
     def list_tasks(self, status: str | None = None, limit: int = 30) -> list[TaskHistorySummary]:
         """Return recent task history rows."""
         return [
-            TaskHistorySummary(
-                task_id=row["task_id"],
-                prompt=row["prompt"],
-                preset_mode=row["preset_mode"],
-                task_type=row["task_type"],
-                status=row["status"],
-                provider=row["provider"],
-                created_at=row["created_at"],
-                updated_at=row["updated_at"],
-                requires_approval=row["requires_approval"],
-                approval_status=row["approval_status"],
-            )
+            self._task_summary_from_row(row)
             for row in self.store.list_task_runs(status=status, limit=limit)
         ]
+
+    def list_conversation_tasks(
+        self,
+        conversation_id: str,
+        *,
+        limit: int = 200,
+    ) -> list[TaskHistoryDetail]:
+        """Return task turns belonging to one conversation, oldest first."""
+        rows = [
+            row
+            for row in self.store.list_task_runs(limit=limit)
+            if self._conversation_id_from_row(row) == conversation_id
+        ]
+        rows.sort(key=lambda row: row["created_at"])
+        details = [self.get_task_detail(row["task_id"]) for row in rows]
+        return [detail for detail in details if detail is not None]
 
     def get_task_detail(self, task_id: str) -> TaskHistoryDetail | None:
         """Return one task detail including persisted stages and approval."""
@@ -218,6 +223,55 @@ class HistoryService:
                 if approval_row is not None
                 else None
             ),
+        )
+
+    @staticmethod
+    def _conversation_id_from_row(row: dict[str, object]) -> str | None:
+        metadata = row.get("metadata_json")
+        if isinstance(metadata, dict) and isinstance(metadata.get("conversation_id"), str):
+            return metadata["conversation_id"]
+        request_payload = row.get("request_payload")
+        if isinstance(request_payload, dict) and isinstance(
+            request_payload.get("conversation_id"),
+            str,
+        ):
+            return request_payload["conversation_id"]
+        return None
+
+    def _task_summary_from_row(self, row: dict[str, object]) -> TaskHistorySummary:
+        metadata = row.get("metadata_json")
+        conversation_turn_count = None
+        if isinstance(metadata, dict) and isinstance(
+            metadata.get("conversation_turn_count"),
+            int,
+        ):
+            conversation_turn_count = metadata["conversation_turn_count"]
+        conversation_id = self._conversation_id_from_row(row)
+        if conversation_turn_count is None and conversation_id:
+            if isinstance(metadata, dict) and isinstance(
+                metadata.get("conversation_history"),
+                list,
+            ):
+                conversation_turn_count = len(metadata["conversation_history"]) + 1
+            else:
+                conversation_turn_count = 1
+        return TaskHistorySummary(
+            task_id=str(row["task_id"]),
+            prompt=str(row["prompt"]),
+            preset_mode=str(row["preset_mode"]),
+            task_type=row["task_type"] if isinstance(row["task_type"], str) else None,
+            status=str(row["status"]),
+            provider=row["provider"] if isinstance(row["provider"], str) else None,
+            created_at=str(row["created_at"]),
+            updated_at=str(row["updated_at"]),
+            requires_approval=bool(row["requires_approval"]),
+            approval_status=(
+                row["approval_status"]
+                if isinstance(row["approval_status"], str)
+                else None
+            ),
+            conversation_id=conversation_id,
+            conversation_turn_count=conversation_turn_count,
         )
 
     def list_pending_approvals(self) -> list[ApprovalRecord]:

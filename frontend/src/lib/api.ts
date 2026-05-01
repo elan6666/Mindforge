@@ -166,6 +166,14 @@ export function fetchTaskHistoryDetail(taskId: string): Promise<TaskHistoryDetai
   return requestJson<TaskHistoryDetail>(`/history/tasks/${taskId}`);
 }
 
+export function fetchConversationHistory(
+  conversationId: string,
+): Promise<TaskHistoryDetail[]> {
+  return requestJson<TaskHistoryDetail[]>(
+    `/history/conversations/${encodeURIComponent(conversationId)}/tasks`,
+  );
+}
+
 export function fetchPendingApprovals(): Promise<ApprovalRecord[]> {
   return requestJson<ApprovalRecord[]>("/approvals/pending");
 }

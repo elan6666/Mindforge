@@ -275,6 +275,8 @@ export type TaskHistorySummary = {
   updated_at: string;
   requires_approval: boolean;
   approval_status?: string | null;
+  conversation_id?: string | null;
+  conversation_turn_count?: number | null;
 };
 
 export type StageHistoryRecord = {
