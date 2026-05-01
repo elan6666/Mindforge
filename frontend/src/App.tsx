@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import {
   approveTask,
   createModelControl,
@@ -44,16 +44,57 @@ type PanelTab =
   | "github"
   | "academic"
   | "approval"
+  | "canvas"
   | "metadata";
 type AppView = "workspace" | "models" | "rules";
 type HistoryFilter = "all" | "completed" | "pending_approval" | "failed" | "rejected";
 type ProviderTestMessage = { status: "success" | "error"; text: string };
+type ChatAttachment = {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  contentExcerpt?: string;
+  truncated?: boolean;
+};
+type ChatMessageRole = "user" | "assistant" | "system";
+type ChatMessage = {
+  id: string;
+  role: ChatMessageRole;
+  content: string;
+  taskId?: string;
+  createdAt?: string;
+  status?: string;
+};
 type PresetFieldConfig = {
   showRepoPath: boolean;
   showGitHub: boolean;
   showAcademic: boolean;
   showApproval: boolean;
   taskTypes: string[];
+};
+type ComposerCapabilityKey =
+  | "deep_analysis"
+  | "web_search"
+  | "code_execution"
+  | "canvas";
+
+const COMPOSER_CAPABILITIES: Array<{
+  key: ComposerCapabilityKey;
+  label: string;
+  hint: string;
+}> = [
+  { key: "deep_analysis", label: "深度分析", hint: "请求更长推理链路" },
+  { key: "web_search", label: "联网", hint: "把联网能力作为任务偏好发送" },
+  { key: "code_execution", label: "代码执行", hint: "允许执行代码的任务偏好" },
+  { key: "canvas", label: "画布", hint: "需要可视化或文档画布" },
+];
+
+const DEFAULT_CAPABILITY_FLAGS: Record<ComposerCapabilityKey, boolean> = {
+  deep_analysis: false,
+  web_search: false,
+  code_execution: false,
+  canvas: false,
 };
 
 const PRESET_FIELD_CONFIGS: Record<string, PresetFieldConfig> = {
@@ -127,6 +168,11 @@ const TASK_TYPE_OPTIONS = [
   { value: "review", label: "审查" },
 ];
 
+const TEXT_ATTACHMENT_LIMIT = 12000;
+const TEXT_ATTACHMENT_EXTENSIONS = /\.(txt|md|mdx|json|jsonl|csv|tsv|py|ts|tsx|js|jsx|html|css|scss|xml|yaml|yml|toml|ini|log|sql|rst|tex)$/i;
+const CONVERSATION_HISTORY_LIMIT = 16;
+const CONVERSATION_MESSAGE_LIMIT = 8000;
+
 const HISTORY_FILTERS: Array<{ value: HistoryFilter; label: string }> = [
   { value: "all", label: "全部" },
   { value: "pending_approval", label: "待审批" },
@@ -142,6 +188,7 @@ const TAB_LABELS: Record<PanelTab, string> = {
   github: "GitHub",
   academic: "论文",
   approval: "审批",
+  canvas: "画布",
   metadata: "元数据",
 };
 
@@ -166,6 +213,13 @@ const PRIORITY_LABELS: Record<ModelSummary["priority"], string> = {
   medium: "中",
   low: "低",
   disabled: "禁用",
+};
+
+const MODEL_PRIORITY_ORDER: Record<ModelSummary["priority"], number> = {
+  high: 0,
+  medium: 1,
+  low: 2,
+  disabled: 3,
 };
 
 const RISK_LABELS: Record<string, string> = {
@@ -207,6 +261,12 @@ function formatRole(value?: string | null): string {
   return ROLE_LABELS[value] || value;
 }
 
+function formatChatRole(role: ChatMessageRole): string {
+  if (role === "assistant") return "Mindforge";
+  if (role === "system") return "系统";
+  return "用户";
+}
+
 function formatProviderTestText(status: string, detail: string): string {
   const detailLabels: Record<string, string> = {
     "Connection OK": "连接正常",
@@ -221,6 +281,153 @@ function formatTitle(prompt: string): string {
   return trimmed.length > 30 ? `${trimmed.slice(0, 30)}...` : trimmed;
 }
 
+function formatTaskType(value: string): string {
+  return TASK_TYPE_OPTIONS.find((option) => option.value === value)?.label || value || "自动";
+}
+
+function formatAttachmentSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function canReadAsText(file: File): boolean {
+  return file.type.startsWith("text/") || TEXT_ATTACHMENT_EXTENSIONS.test(file.name);
+}
+
+function readFileText(file: File): Promise<string> {
+  if (typeof file.text === "function") {
+    return file.text();
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
+    reader.readAsText(file);
+  });
+}
+
+function createClientId(prefix: string): string {
+  const randomId =
+    globalThis.crypto?.randomUUID?.() ||
+    `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}-${randomId}`;
+}
+
+async function createChatAttachment(file: File): Promise<ChatAttachment> {
+  let contentExcerpt: string | undefined;
+  let truncated = false;
+  if (canReadAsText(file)) {
+    const content = await readFileText(file);
+    contentExcerpt = content.slice(0, TEXT_ATTACHMENT_LIMIT);
+    truncated = content.length > TEXT_ATTACHMENT_LIMIT;
+  }
+  const attachmentId =
+    globalThis.crypto?.randomUUID?.() ||
+    `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return {
+    id: `${file.name}-${file.size}-${file.lastModified}-${attachmentId}`,
+    name: file.name,
+    size: file.size,
+    type: file.type || "unknown",
+    contentExcerpt,
+    truncated,
+  };
+}
+
+function normalizeChatRole(value: unknown): ChatMessageRole {
+  return value === "assistant" || value === "system" ? value : "user";
+}
+
+function getStringField(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function normalizeConversationMessage(value: unknown, index: number): ChatMessage | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const content = getStringField(record, "content");
+  if (!content) return null;
+  const taskId = getStringField(record, "task_id") || getStringField(record, "taskId");
+  const createdAt = getStringField(record, "created_at") || getStringField(record, "createdAt");
+  return {
+    id: getStringField(record, "id") || `${taskId || "history"}-${index}`,
+    role: normalizeChatRole(record.role),
+    content,
+    taskId,
+    createdAt,
+  };
+}
+
+function responseToAssistantContent(result: TaskResult): string {
+  return result.data.output || result.error_message || result.message || "任务已提交。";
+}
+
+function buildConversationHistory(messages: ChatMessage[]) {
+  return messages.slice(-CONVERSATION_HISTORY_LIMIT).map((message) => {
+    const payload: {
+      role: ChatMessageRole;
+      content: string;
+      task_id?: string;
+      created_at?: string;
+      metadata?: Record<string, unknown>;
+    } = {
+      role: message.role,
+      content:
+        message.content.length > CONVERSATION_MESSAGE_LIMIT
+          ? `${message.content.slice(0, CONVERSATION_MESSAGE_LIMIT - 3)}...`
+          : message.content,
+    };
+    if (message.taskId) payload.task_id = message.taskId;
+    if (message.createdAt) payload.created_at = message.createdAt;
+    if (message.status) payload.metadata = { status: message.status };
+    return payload;
+  });
+}
+
+function hydrateConversationFromDetail(detail: TaskHistoryDetail): {
+  conversationId: string;
+  messages: ChatMessage[];
+} {
+  const metadata = detail.metadata || {};
+  const requestPayload = detail.request_payload || {};
+  const rawHistory = Array.isArray(metadata.conversation_history)
+    ? metadata.conversation_history
+    : Array.isArray(requestPayload.conversation_history)
+      ? requestPayload.conversation_history
+      : [];
+  const messages = rawHistory
+    .map((item, index) => normalizeConversationMessage(item, index))
+    .filter((item): item is ChatMessage => Boolean(item));
+  if (detail.prompt.trim()) {
+    messages.push({
+      id: `${detail.task_id}-user`,
+      role: "user",
+      content: detail.prompt,
+      taskId: detail.task_id,
+      createdAt: detail.created_at,
+      status: detail.status,
+    });
+  }
+  const assistantContent = detail.output || detail.error_message || detail.message;
+  if (assistantContent.trim()) {
+    messages.push({
+      id: `${detail.task_id}-assistant`,
+      role: "assistant",
+      content: assistantContent,
+      taskId: detail.task_id,
+      createdAt: detail.updated_at,
+      status: detail.status,
+    });
+  }
+  const conversationId =
+    getStringField(metadata, "conversation_id") ||
+    getStringField(requestPayload, "conversation_id") ||
+    `history-${detail.task_id}`;
+  return { conversationId, messages };
+}
+
 function createEmptyTemplate(presetMode = "code-engineering"): RuleTemplateSummary {
   return {
     template_id: "new-template",
@@ -228,7 +435,7 @@ function createEmptyTemplate(presetMode = "code-engineering"): RuleTemplateSumma
     description: "说明这个规则模板适合什么任务。",
     preset_mode: presetMode,
     task_types: [],
-    default_coordinator_model_id: "gpt-5.4",
+    default_coordinator_model_id: "",
     enabled: true,
     is_default: false,
     trigger_keywords: [],
@@ -236,7 +443,7 @@ function createEmptyTemplate(presetMode = "code-engineering"): RuleTemplateSumma
       {
         role: "project-manager",
         responsibility: "负责主要规划和任务拆解",
-        model_id: "gpt-5.4",
+        model_id: "",
       },
     ],
     notes: "",
@@ -267,6 +474,14 @@ function splitCommaList(value: string): string[] {
     .filter(Boolean);
 }
 
+function sortModelsByPriority(items: ModelSummary[]): ModelSummary[] {
+  return [...items].sort(
+    (left, right) =>
+      MODEL_PRIORITY_ORDER[left.priority] - MODEL_PRIORITY_ORDER[right.priority] ||
+      left.display_name.localeCompare(right.display_name),
+  );
+}
+
 function presetFieldConfig(presetMode: string): PresetFieldConfig {
   return PRESET_FIELD_CONFIGS[presetMode] || PRESET_FIELD_CONFIGS.default;
 }
@@ -279,6 +494,32 @@ function buildRoleModelOverrides(
   const roles = PRESET_ROLE_OVERRIDES[presetMode] || [];
   if (roles.length === 0) return undefined;
   return Object.fromEntries(roles.map((role) => [role, modelId]));
+}
+
+function buildToolFlags(
+  flags: Record<ComposerCapabilityKey, boolean>,
+): Record<ComposerCapabilityKey, boolean> {
+  return {
+    deep_analysis: flags.deep_analysis,
+    web_search: flags.web_search,
+    code_execution: flags.code_execution,
+    canvas: flags.canvas,
+  };
+}
+
+function buildTaskAttachments(attachments: ChatAttachment[]) {
+  return attachments.map((attachment) => ({
+    id: attachment.id,
+    name: attachment.name,
+    mime_type: attachment.type,
+    size_bytes: attachment.size,
+    text_excerpt: attachment.contentExcerpt,
+    metadata: {
+      source: "composer-upload",
+      truncated: Boolean(attachment.truncated),
+      has_text_excerpt: Boolean(attachment.contentExcerpt),
+    },
+  }));
 }
 
 function createEmptyProviderDraft(): ProviderCreateRequest {
@@ -325,6 +566,8 @@ export function App() {
   const [activeTaskDetail, setActiveTaskDetail] = useState<TaskHistoryDetail | null>(null);
 
   const [prompt, setPrompt] = useState("");
+  const [conversationId, setConversationId] = useState(() => createClientId("conversation"));
+  const [conversationMessages, setConversationMessages] = useState<ChatMessage[]>([]);
   const [presetMode, setPresetMode] = useState("code-engineering");
   const [repoPath, setRepoPath] = useState("");
   const [taskType, setTaskType] = useState("");
@@ -338,6 +581,12 @@ export function App() {
   const [referencePaperUrls, setReferencePaperUrls] = useState("");
   const [requiresApproval, setRequiresApproval] = useState(false);
   const [approvalActions, setApprovalActions] = useState("写入文件");
+  const [isToolMenuOpen, setIsToolMenuOpen] = useState(false);
+  const [isTaskConfigOpen, setIsTaskConfigOpen] = useState(false);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [capabilityFlags, setCapabilityFlags] = useState<
+    Record<ComposerCapabilityKey, boolean>
+  >(DEFAULT_CAPABILITY_FLAGS);
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -399,6 +648,27 @@ export function App() {
   const visibleTaskTypeOptions = TASK_TYPE_OPTIONS.filter((option) =>
     selectedPresetFields.taskTypes.includes(option.value),
   );
+  const userModelOptions = useMemo(
+    () =>
+      sortModelsByPriority(
+        customModels.filter((item) => item.enabled && item.priority !== "disabled"),
+      ),
+    [customModels],
+  );
+  const userModelIds = useMemo(
+    () => new Set(userModelOptions.map((item) => item.model_id)),
+    [userModelOptions],
+  );
+  const defaultUserModelId = userModelOptions[0]?.model_id || "";
+  const selectedPresetName =
+    presets.find((preset) => preset.preset_mode === presetMode)?.display_name || presetMode;
+  const selectedModelName =
+    userModelOptions.find((model) => model.model_id === modelOverride)?.display_name ||
+    defaultUserModelId ||
+    "未选择模型";
+  const selectedRuleTemplateName =
+    filteredTemplates.find((template) => template.template_id === ruleTemplateId)?.display_name ||
+    "自动选择";
 
   async function refreshHistory(nextActiveTaskId?: string | null) {
     const statusQuery = historyFilter === "all" ? undefined : historyFilter;
@@ -415,8 +685,11 @@ export function App() {
       null;
     if (targetTaskId) {
       const detail = await fetchTaskHistoryDetail(targetTaskId);
+      const hydratedConversation = hydrateConversationFromDetail(detail);
       setActiveTaskId(targetTaskId);
       setActiveTaskDetail(detail);
+      setConversationId(hydratedConversation.conversationId);
+      setConversationMessages(hydratedConversation.messages);
     } else {
       setActiveTaskId(null);
       setActiveTaskDetail(null);
@@ -490,6 +763,41 @@ export function App() {
   }, [filteredTemplates, ruleTemplateId]);
 
   useEffect(() => {
+    if (!defaultUserModelId) {
+      if (modelOverride) setModelOverride("");
+      return;
+    }
+    if (!modelOverride || !userModelIds.has(modelOverride)) {
+      setModelOverride(defaultUserModelId);
+    }
+  }, [defaultUserModelId, modelOverride, userModelIds]);
+
+  useEffect(() => {
+    if (!defaultUserModelId) return;
+    setTemplateDraft((current) => {
+      const nextAssignments = current.assignments.map((assignment) =>
+        userModelIds.has(assignment.model_id)
+          ? assignment
+          : { ...assignment, model_id: defaultUserModelId },
+      );
+      const coordinatorChanged = !userModelIds.has(
+        current.default_coordinator_model_id,
+      );
+      const assignmentsChanged = nextAssignments.some(
+        (assignment, index) => assignment.model_id !== current.assignments[index]?.model_id,
+      );
+      if (!coordinatorChanged && !assignmentsChanged) return current;
+      return {
+        ...current,
+        default_coordinator_model_id: coordinatorChanged
+          ? defaultUserModelId
+          : current.default_coordinator_model_id,
+        assignments: nextAssignments,
+      };
+    });
+  }, [defaultUserModelId, userModelIds]);
+
+  useEffect(() => {
     const config = presetFieldConfig(presetMode);
     if (!config.taskTypes.includes(taskType)) {
       setTaskType("");
@@ -517,25 +825,67 @@ export function App() {
     setView(targetView);
     setSettingsMessage(null);
     setSettingsError(null);
+    if (navId === "new-task") {
+      setActiveTaskId(null);
+      setActiveTaskDetail(null);
+      setActiveTab("output");
+      setPrompt("");
+      setConversationId(createClientId("conversation"));
+      setConversationMessages([]);
+      setAttachments([]);
+      setSubmitError(null);
+      setIsToolMenuOpen(false);
+      setIsTaskConfigOpen(false);
+    }
   }
 
   async function handleHistorySelect(taskId: string) {
     const detail = await fetchTaskHistoryDetail(taskId);
+    const hydratedConversation = hydrateConversationFromDetail(detail);
     setActiveTaskId(taskId);
     setActiveTaskDetail(detail);
+    setConversationId(hydratedConversation.conversationId);
+    setConversationMessages(hydratedConversation.messages);
     setActiveTab("output");
     setView("workspace");
     setActiveNavId("history");
   }
 
+  async function handleAttachmentInput(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+    const nextAttachments = await Promise.all(files.map(createChatAttachment));
+    setAttachments((current) => [...current, ...nextAttachments]);
+    setIsToolMenuOpen(false);
+    event.target.value = "";
+  }
+
+  function removeAttachment(attachmentId: string) {
+    setAttachments((current) => current.filter((item) => item.id !== attachmentId));
+  }
+
+  function toggleCapabilityFlag(key: ComposerCapabilityKey) {
+    setCapabilityFlags((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
+  }
+
   async function handleSubmit() {
-    if (!prompt.trim()) {
+    const submittedPrompt = prompt.trim();
+    if (!submittedPrompt) {
       setSubmitError("请输入任务描述。");
+      return;
+    }
+    if (!modelOverride && !defaultUserModelId) {
+      setSubmitError("请先在模型控制中心添加并启用一个用户模型。");
       return;
     }
     setIsSubmitting(true);
     setSubmitError(null);
     try {
+      const priorMessages = conversationMessages;
+      const currentConversationId = conversationId || createClientId("conversation");
       const metadata: Record<string, unknown> = {};
       const fieldConfig = presetFieldConfig(presetMode);
       if (fieldConfig.showApproval && requiresApproval) {
@@ -546,14 +896,19 @@ export function App() {
           .filter(Boolean);
         metadata.execution_mode = "write";
       }
+      const selectedModelId = userModelIds.has(modelOverride)
+        ? modelOverride
+        : defaultUserModelId;
       const result = await submitTask({
-        prompt,
+        prompt: submittedPrompt,
         preset_mode: presetMode,
         repo_path: fieldConfig.showRepoPath ? repoPath || undefined : undefined,
         task_type: taskType || undefined,
-        model_override: modelOverride || undefined,
-        role_model_overrides: buildRoleModelOverrides(presetMode, modelOverride),
+        model_override: selectedModelId || undefined,
+        role_model_overrides: buildRoleModelOverrides(presetMode, selectedModelId),
         rule_template_id: ruleTemplateId || undefined,
+        conversation_id: currentConversationId,
+        conversation_history: buildConversationHistory(priorMessages),
         github_repo: fieldConfig.showGitHub ? githubRepo || undefined : undefined,
         github_issue_number:
           fieldConfig.showGitHub && githubIssueNumber
@@ -568,9 +923,35 @@ export function App() {
         reference_paper_urls: fieldConfig.showAcademic
           ? parseUrlList(referencePaperUrls)
           : [],
-        metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+        attachments: buildTaskAttachments(attachments),
+        tool_flags: buildToolFlags(capabilityFlags),
+        metadata,
       });
       const taskId = result.data.metadata.task_id;
+      const timestamp = new Date().toISOString();
+      const nextMessages: ChatMessage[] = [
+        ...priorMessages,
+        {
+          id: createClientId("message"),
+          role: "user",
+          content: submittedPrompt,
+          taskId,
+          createdAt: timestamp,
+          status: result.status,
+        },
+        {
+          id: createClientId("message"),
+          role: "assistant",
+          content: responseToAssistantContent(result),
+          taskId,
+          createdAt: timestamp,
+          status: result.status,
+        },
+      ];
+      setConversationId(currentConversationId);
+      setConversationMessages(nextMessages);
+      setPrompt("");
+      setAttachments([]);
       await refreshHistory(taskId || null);
       setActiveTab(result.status === "pending_approval" ? "approval" : "output");
       setSubmitError(null);
@@ -873,7 +1254,7 @@ export function App() {
                 }))
               }
             >
-              {models.map((model) => (
+              {userModelOptions.map((model) => (
                 <option key={model.model_id} value={model.model_id}>
                   {model.display_name}
                 </option>
@@ -903,211 +1284,322 @@ export function App() {
     const activeAcademic = activeTaskDetail?.metadata.academic_context;
     const activeTrace = activeTaskDetail?.metadata.orchestration;
     const activeApproval = activeTaskDetail?.approval;
+    const visibleMessages =
+      conversationMessages.length > 0
+        ? conversationMessages
+        : activeTaskDetail
+          ? hydrateConversationFromDetail(activeTaskDetail).messages
+          : [];
+    const conversationTurnCount = visibleMessages.filter(
+      (message) => message.role === "user",
+    ).length;
 
     return (
       <div className="workspace-body view-enter">
-        <section className="chat-column">
-          <div className="panel panel-intro">
-            <div className="panel-title-row">
-              <h2>任务工作台</h2>
-              <span className="subtle">新请求</span>
-            </div>
-            <div className="control-grid">
-              <label>
-                <span>预设模式</span>
-                <select value={presetMode} onChange={(event) => setPresetMode(event.target.value)}>
-                  {presets.map((preset) => (
-                    <option key={preset.preset_mode} value={preset.preset_mode}>
-                      {preset.display_name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>任务类型</span>
-                <select value={taskType} onChange={(event) => setTaskType(event.target.value)}>
-                  {visibleTaskTypeOptions.map((option) => (
-                    <option key={option.value || "auto"} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {selectedPresetFields.showRepoPath && (
-                <label>
-                  <span>仓库路径</span>
-                  <input
-                    type="text"
-                    placeholder="E:\\CODE\\project or ."
-                    value={repoPath}
-                    onChange={(event) => setRepoPath(event.target.value)}
-                  />
-                </label>
-              )}
-              <label>
-                <span>协调模型</span>
-                <select
-                  value={modelOverride}
-                  onChange={(event) => setModelOverride(event.target.value)}
-                >
-                  <option value="">自动选择</option>
-                  {models
-                    .filter((item) => item.enabled && item.priority !== "disabled")
-                    .map((model) => (
-                      <option key={model.model_id} value={model.model_id}>
-                        {model.display_name} / {model.provider_id}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <label className="full-width">
-                <span>规则模板</span>
-                <select
-                  value={ruleTemplateId}
-                  onChange={(event) => setRuleTemplateId(event.target.value)}
-                >
-                  <option value="">自动选择</option>
-                  {filteredTemplates.map((template) => (
-                    <option key={template.template_id} value={template.template_id}>
-                      {template.display_name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {selectedPresetFields.showGitHub && (
-                <>
-                  <label>
-                    <span>GitHub 仓库</span>
-                    <input
-                      type="text"
-                      placeholder="owner/repo"
-                      value={githubRepo}
-                      onChange={(event) => setGitHubRepo(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    <span>Issue 编号</span>
-                    <input
-                      type="number"
-                      min="1"
-                      placeholder="可选"
-                      value={githubIssueNumber}
-                      onChange={(event) => setGitHubIssueNumber(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    <span>PR 编号</span>
-                    <input
-                      type="number"
-                      min="1"
-                      placeholder="可选"
-                      value={githubPrNumber}
-                      onChange={(event) => setGitHubPrNumber(event.target.value)}
-                    />
-                  </label>
-                </>
-              )}
-              {selectedPresetFields.showAcademic && (
-                <>
-                  <label>
-                    <span>期刊名称</span>
-                    <input
-                      type="text"
-                      placeholder="Nature, IEEE TSE..."
-                      value={journalName}
-                      onChange={(event) => setJournalName(event.target.value)}
-                    />
-                  </label>
-                  <label className="full-width">
-                    <span>期刊投稿指南 URL</span>
-                    <input
-                      type="url"
-                      placeholder="https://journal.example.com/for-authors"
-                      value={journalUrl}
-                      onChange={(event) => setJournalUrl(event.target.value)}
-                    />
-                  </label>
-                  <label className="full-width">
-                    <span>参考论文 URL</span>
-                    <textarea
-                      value={referencePaperUrls}
-                      onChange={(event) => setReferencePaperUrls(event.target.value)}
-                      placeholder="每行一个 URL，也可以用英文逗号分隔。"
-                    />
-                  </label>
-                </>
-              )}
-              {selectedPresetFields.showApproval && (
-                <label className="toggle-row full-width">
-                  <span>执行前需要审批</span>
-                  <input
-                    type="checkbox"
-                    checked={requiresApproval}
-                    onChange={(event) => setRequiresApproval(event.target.checked)}
-                  />
-                </label>
-              )}
-              {selectedPresetFields.showApproval && requiresApproval && (
-                <label className="full-width">
-                  <span>高风险动作</span>
-                  <input
-                    type="text"
-                    placeholder="写入文件，执行命令"
-                    value={approvalActions}
-                    onChange={(event) => setApprovalActions(event.target.value)}
-                  />
-                </label>
-              )}
-            </div>
-
-            <label className="prompt-field">
-              <span>任务描述</span>
-              <textarea
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                placeholder="描述你希望 Mindforge 完成的任务。"
-              />
-            </label>
-            <div className="action-row">
-              <button type="button" className="primary-button" onClick={handleSubmit} disabled={isSubmitting}>
-                {isSubmitting ? <><span className="spinner" />提交中...</> : "提交任务"}
-              </button>
-              <div className="subtle">
-                接口：/api/tasks, /api/history/tasks, /api/approvals/pending
+        <section className="chat-column chat-column-dialog">
+          <div className="panel conversation-preview chat-surface">
+            <div className="panel-title-row chat-title-row">
+              <div>
+                <h2>任务工作台</h2>
+                <p className="subtle">
+                  像对话一样描述任务；当前对话 {conversationTurnCount} 轮，预设、模型、规则和文件都收在下方工具栏里。
+                </p>
               </div>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => handleNavClick("new-task", "workspace")}
+              >
+                新任务
+              </button>
             </div>
-            {loadError && <div className="message error">{loadError}</div>}
-            {submitError && <div className="message error">{submitError}</div>}
-          </div>
-
-          <div className="panel conversation-preview">
-            <div className="panel-title-row">
-              <h2>对话预览</h2>
-              <span className="subtle">
-                {activeTaskDetail ? formatTitle(activeTaskDetail.prompt) : "未选择任务"}
-              </span>
-            </div>
-            <div className="message-list">
-              {activeTaskDetail ? (
-                <>
-                  <div className="bubble user">
-                    <div className="bubble-role">用户</div>
-                    <div>{activeTaskDetail.prompt}</div>
+            <div className="message-list chat-thread">
+              {visibleMessages.length > 0 ? (
+                visibleMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`bubble ${message.role} ${
+                      message.status === "failed" ? "failed" : ""
+                    }`}
+                  >
+                    <div className="bubble-role">{formatChatRole(message.role)}</div>
+                    <div className="bubble-content">{message.content}</div>
+                    {message.taskId && (
+                      <div className="bubble-meta">
+                        {message.status ? formatStatus(message.status) : "已记录"} / {message.taskId}
+                      </div>
+                    )}
                   </div>
-                  <div className="bubble assistant">
-                    <div className="bubble-role">Mindforge</div>
-                    <div>
-                      {activeTaskDetail.output ||
-                        activeTaskDetail.error_message ||
-                        activeTaskDetail.message}
-                    </div>
-                  </div>
-                </>
+                ))
               ) : (
-                <div className="empty-hint">
-                  从历史记录中选择任务，或提交一个新任务。
+                <div className="empty-hint chat-empty">
+                  <strong>开启一次新的 Mindforge 对话</strong>
+                  <span>直接输入任务。需要预设、模型、仓库、期刊或审批时，点击左下角 + 配置。</span>
                 </div>
               )}
+            </div>
+
+            <div className="chat-composer">
+              {isTaskConfigOpen && (
+                <div className="composer-config-panel" id="task-config-panel">
+                  <div className="composer-config-head">
+                    <strong>任务配置</strong>
+                    <span className="subtle">这些是任务上下文，不再和正文输入抢层级。</span>
+                  </div>
+                  <div className="control-grid composer-control-grid">
+                    <label>
+                      <span>预设模式</span>
+                      <select value={presetMode} onChange={(event) => setPresetMode(event.target.value)}>
+                        {presets.map((preset) => (
+                          <option key={preset.preset_mode} value={preset.preset_mode}>
+                            {preset.display_name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>任务类型</span>
+                      <select value={taskType} onChange={(event) => setTaskType(event.target.value)}>
+                        {visibleTaskTypeOptions.map((option) => (
+                          <option key={option.value || "auto"} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {selectedPresetFields.showRepoPath && (
+                      <label>
+                        <span>仓库路径</span>
+                        <input
+                          type="text"
+                          placeholder="E:\\CODE\\project or ."
+                          value={repoPath}
+                          onChange={(event) => setRepoPath(event.target.value)}
+                        />
+                      </label>
+                    )}
+                    <label>
+                      <span>协调模型</span>
+                      <select
+                        value={modelOverride}
+                        onChange={(event) => setModelOverride(event.target.value)}
+                      >
+                        {userModelOptions.length === 0 ? (
+                          <option value="">请先添加用户模型</option>
+                        ) : (
+                          userModelOptions.map((model) => (
+                            <option key={model.model_id} value={model.model_id}>
+                              {model.display_name} / {model.provider_id}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </label>
+                    <label className="full-width">
+                      <span>规则模板</span>
+                      <select
+                        value={ruleTemplateId}
+                        onChange={(event) => setRuleTemplateId(event.target.value)}
+                      >
+                        <option value="">自动选择</option>
+                        {filteredTemplates.map((template) => (
+                          <option key={template.template_id} value={template.template_id}>
+                            {template.display_name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {selectedPresetFields.showGitHub && (
+                      <>
+                        <label>
+                          <span>GitHub 仓库</span>
+                          <input
+                            type="text"
+                            placeholder="owner/repo"
+                            value={githubRepo}
+                            onChange={(event) => setGitHubRepo(event.target.value)}
+                          />
+                        </label>
+                        <label>
+                          <span>Issue 编号</span>
+                          <input
+                            type="number"
+                            min="1"
+                            placeholder="可选"
+                            value={githubIssueNumber}
+                            onChange={(event) => setGitHubIssueNumber(event.target.value)}
+                          />
+                        </label>
+                        <label>
+                          <span>PR 编号</span>
+                          <input
+                            type="number"
+                            min="1"
+                            placeholder="可选"
+                            value={githubPrNumber}
+                            onChange={(event) => setGitHubPrNumber(event.target.value)}
+                          />
+                        </label>
+                      </>
+                    )}
+                    {selectedPresetFields.showAcademic && (
+                      <>
+                        <label>
+                          <span>期刊名称</span>
+                          <input
+                            type="text"
+                            placeholder="Nature, IEEE TSE..."
+                            value={journalName}
+                            onChange={(event) => setJournalName(event.target.value)}
+                          />
+                        </label>
+                        <label className="full-width">
+                          <span>期刊投稿指南 URL</span>
+                          <input
+                            type="url"
+                            placeholder="https://journal.example.com/for-authors"
+                            value={journalUrl}
+                            onChange={(event) => setJournalUrl(event.target.value)}
+                          />
+                        </label>
+                        <label className="full-width">
+                          <span>参考论文 URL</span>
+                          <textarea
+                            value={referencePaperUrls}
+                            onChange={(event) => setReferencePaperUrls(event.target.value)}
+                            placeholder="每行一个 URL，也可以用英文逗号分隔。"
+                          />
+                        </label>
+                      </>
+                    )}
+                    {selectedPresetFields.showApproval && (
+                      <label className="toggle-row full-width">
+                        <span>执行前需要审批</span>
+                        <input
+                          type="checkbox"
+                          checked={requiresApproval}
+                          onChange={(event) => setRequiresApproval(event.target.checked)}
+                        />
+                      </label>
+                    )}
+                    {selectedPresetFields.showApproval && requiresApproval && (
+                      <label className="full-width">
+                        <span>高风险动作</span>
+                        <input
+                          type="text"
+                          placeholder="写入文件，执行命令"
+                          value={approvalActions}
+                          onChange={(event) => setApprovalActions(event.target.value)}
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {attachments.length > 0 && (
+                <div className="attachment-strip">
+                  {attachments.map((attachment) => (
+                    <span key={attachment.id} className="attachment-pill">
+                      <span>{attachment.name}</span>
+                      <small>{formatAttachmentSize(attachment.size)}</small>
+                      <button
+                        type="button"
+                        aria-label={`移除 ${attachment.name}`}
+                        onClick={() => removeAttachment(attachment.id)}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {loadError && <div className="message error">{loadError}</div>}
+              {submitError && <div className="message error">{submitError}</div>}
+
+              <label className="sr-only" htmlFor="task-prompt">任务描述</label>
+              <textarea
+                id="task-prompt"
+                className="composer-textarea"
+                aria-label="任务描述"
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                placeholder="有问题，尽管问。也可以描述你希望 Mindforge 完成的工程、论文或资料整理任务。"
+              />
+              <div className="composer-toolbar">
+                <div className="composer-tools">
+                  <div className="composer-toolbox">
+                    <button
+                      type="button"
+                      className={`composer-plus ${isToolMenuOpen ? "active" : ""}`}
+                      aria-label={isToolMenuOpen ? "收起工具菜单" : "打开工具菜单"}
+                      aria-expanded={isToolMenuOpen}
+                      aria-controls="composer-tool-menu"
+                      onClick={() => setIsToolMenuOpen((value) => !value)}
+                    >
+                      +
+                    </button>
+                    {isToolMenuOpen && (
+                      <div className="composer-tool-menu" id="composer-tool-menu">
+                        <button
+                          type="button"
+                          className={`tool-menu-item ${isTaskConfigOpen ? "active" : ""}`}
+                          aria-expanded={isTaskConfigOpen}
+                          aria-controls="task-config-panel"
+                          onClick={() => setIsTaskConfigOpen((value) => !value)}
+                        >
+                          <span>任务配置</span>
+                          <small>{isTaskConfigOpen ? "收起配置面板" : "展开模型、仓库和审批"}</small>
+                        </button>
+                        <label className="tool-menu-item upload-menu-item">
+                          <input
+                            type="file"
+                            multiple
+                            aria-label="上传文件"
+                            onChange={handleAttachmentInput}
+                          />
+                          <span>上传文件</span>
+                          <small>附加文本、代码或资料上下文</small>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                  <div className="capability-chip-row" aria-label="Composer capabilities">
+                    {COMPOSER_CAPABILITIES.map((capability) => (
+                      <button
+                        key={capability.key}
+                        type="button"
+                        className={`capability-chip ${
+                          capabilityFlags[capability.key] ? "active" : ""
+                        }`}
+                        aria-pressed={capabilityFlags[capability.key]}
+                        title={capability.hint}
+                        onClick={() => toggleCapabilityFlag(capability.key)}
+                      >
+                        {capability.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="composer-chip-row">
+                    <span className="composer-chip">{selectedPresetName}</span>
+                    <span className="composer-chip">{formatTaskType(taskType)}</span>
+                    <span className="composer-chip">{selectedModelName}</span>
+                    <span className="composer-chip">{selectedRuleTemplateName}</span>
+                    {attachments.length > 0 && (
+                      <span className="composer-chip">{attachments.length} 个附件</span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="primary-button send-button"
+                  onClick={handleSubmit}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? <><span className="spinner" />发送中...</> : "发送任务"}
+                </button>
+              </div>
             </div>
           </div>
         </section>
@@ -1121,7 +1613,7 @@ export function App() {
               </span>
             </div>
             <div className="tabs-row">
-              {(["output", "stages", "repo", "github", "academic", "approval", "metadata"] as PanelTab[]).map((tab) => (
+              {(["output", "stages", "repo", "github", "academic", "approval", "canvas", "metadata"] as PanelTab[]).map((tab) => (
                 <button
                   key={tab}
                   type="button"
@@ -1361,6 +1853,21 @@ export function App() {
               <div className="panel-content">
                 <h3>任务元数据</h3>
                 <pre>{JSON.stringify(activeTaskDetail?.metadata || {}, null, 2)}</pre>
+              </div>
+            )}
+
+            {activeTab === "canvas" && (
+              <div className="panel-content">
+                <h3>画布 / 代码执行</h3>
+                <div className="canvas-lite">
+                  <strong>Canvas-lite 已接入任务契约</strong>
+                  <p>
+                    当你在输入框下方开启“画布”或“代码执行”时，Mindforge 会把请求写入
+                    <code>tool_flags</code>，后端历史也会保留。真实代码沙箱和可编辑画布会在后续阶段接入
+                    OpenHands runtime。
+                  </p>
+                  <pre>{JSON.stringify(activeTaskDetail?.metadata?.tool_flags || {}, null, 2)}</pre>
+                </div>
               </div>
             )}
           </div>
@@ -2231,7 +2738,7 @@ export function App() {
                   }))
                 }
               >
-                {models.map((model) => (
+                {userModelOptions.map((model) => (
                   <option key={model.model_id} value={model.model_id}>
                     {model.display_name}
                   </option>
@@ -2325,7 +2832,7 @@ export function App() {
                     {
                       role: "new-role",
                       responsibility: "说明职责",
-                      model_id: models[0]?.model_id || "gpt-5.4",
+                      model_id: defaultUserModelId,
                     },
                   ],
                 }))
@@ -2451,7 +2958,7 @@ export function App() {
           <div className="status-row">
             <span className="pill accent">Phase 11</span>
             <span className="pill">论文修改已就绪</span>
-            <span className="pill">{models.length} 个模型</span>
+            <span className="pill">{customModels.length} 个模型</span>
             <span className="pill">{providers.length} 个模型服务商</span>
             <span className="pill">{ruleTemplates.length} 个模板</span>
             <span className="pill">{historyItems.length} 个最近任务</span>

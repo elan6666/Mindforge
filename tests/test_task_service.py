@@ -40,6 +40,82 @@ def test_submit_uses_default_preset_and_mock_provider(tmp_path):
     assert response.data.metadata["task_model_selection"]["model_id"] == "gpt-5.4"
 
 
+def test_submit_includes_composer_attachments_and_tool_flags_metadata(tmp_path):
+    service = make_service(tmp_path, openhands_mode="mock")
+
+    response = service.submit(
+        TaskRequest(
+            prompt="Summarize the uploaded context",
+            attachments=[
+                {
+                    "id": "att-1",
+                    "name": "requirements.md",
+                    "mimeType": "text/markdown",
+                    "sizeBytes": 128,
+                    "textExcerpt": "Backend contract requirements",
+                    "metadata": {"source": "composer-upload", "sha256": "abc123"},
+                }
+            ],
+            tool_flags={"deep_analysis": True},
+            web_search=True,
+            code_execution=False,
+        )
+    )
+
+    metadata = response.data.metadata
+
+    assert response.status == "completed"
+    assert metadata["attachments"] == [
+        {
+            "id": "att-1",
+            "name": "requirements.md",
+            "mime_type": "text/markdown",
+            "size_bytes": 128,
+            "text_excerpt": "Backend contract requirements",
+            "metadata": {"source": "composer-upload", "sha256": "abc123"},
+        }
+    ]
+    assert metadata["tool_flags"]["web_search"] is True
+    assert metadata["tool_flags"]["deep_analysis"] is True
+    assert metadata["tool_flags"]["code_execution"] is False
+    assert metadata["task_model_selection"]["model_id"] == "gpt-5.4"
+
+
+def test_submit_includes_conversation_history_metadata_and_prompt_context(tmp_path):
+    service = make_service(tmp_path, openhands_mode="mock")
+
+    response = service.submit(
+        TaskRequest(
+            prompt="What are the remaining risks?",
+            conversation_id="conversation-1",
+            conversation_history=[
+                {
+                    "role": "user",
+                    "content": "Please review the architecture.",
+                    "taskId": "task-a",
+                },
+                {
+                    "role": "assistant",
+                    "content": "The API boundary is clear.",
+                    "task_id": "task-a",
+                },
+            ],
+        )
+    )
+
+    metadata = response.data.metadata
+
+    assert response.status == "completed"
+    assert metadata["conversation_id"] == "conversation-1"
+    assert metadata["conversation_turn_count"] == 3
+    assert metadata["conversation_history"][0]["task_id"] == "task-a"
+    assert "Conversation so far:" in response.data.output
+    assert "User: Please review the architecture." in response.data.output
+    assert "Assistant: The API boundary is clear." in response.data.output
+    assert "Current user request:" in response.data.output
+    assert "What are the remaining risks?" in response.data.output
+
+
 def test_submit_unknown_preset_returns_failed_response(tmp_path):
     service = make_service(tmp_path, openhands_mode="mock")
 

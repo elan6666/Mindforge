@@ -51,6 +51,8 @@ from app.backend.services.preset_service import (
 from app.backend.services.repository_service import RepositoryAnalysisService
 from app.backend.services.result_normalizer import normalize_task_result
 
+TOOL_FLAG_NAMES = ("web_search", "deep_analysis", "code_execution", "canvas")
+
 
 @dataclass(slots=True)
 class PreparedTaskExecution:
@@ -274,6 +276,7 @@ class TaskService:
             update={
                 "model_override": effective_model_override,
                 "role_model_overrides": effective_role_model_overrides,
+                "metadata": self._build_execution_metadata(payload),
             }
         )
 
@@ -315,6 +318,52 @@ class TaskService:
             github_context=github_context,
             academic_context=academic_context,
         )
+
+    @staticmethod
+    def _build_execution_metadata(payload: TaskRequest) -> dict[str, object]:
+        """Merge structured composer fields into public task metadata."""
+        metadata: dict[str, object] = dict(payload.metadata)
+        if payload.conversation_id:
+            metadata["conversation_id"] = payload.conversation_id
+        if payload.conversation_history:
+            metadata["conversation_history"] = [
+                message.model_dump(mode="json", exclude_none=True)
+                for message in payload.conversation_history
+            ]
+            metadata["conversation_turn_count"] = len(payload.conversation_history) + 1
+        if payload.attachments:
+            metadata["attachments"] = [
+                attachment.model_dump(mode="json", exclude_none=True)
+                for attachment in payload.attachments
+            ]
+
+        tool_flags = TaskService._collect_tool_flags(payload, metadata)
+        if tool_flags:
+            metadata["tool_flags"] = tool_flags
+        return metadata
+
+    @staticmethod
+    def _collect_tool_flags(
+        payload: TaskRequest,
+        metadata: dict[str, object],
+    ) -> dict[str, object]:
+        """Normalize composer flags from legacy metadata, grouped flags, and top-level fields."""
+        flags: dict[str, object] = {}
+        for flag_name in TOOL_FLAG_NAMES:
+            metadata_value = metadata.get(flag_name)
+            if isinstance(metadata_value, bool):
+                flags[flag_name] = metadata_value
+
+        metadata_tool_flags = metadata.get("tool_flags")
+        if isinstance(metadata_tool_flags, dict):
+            flags.update(metadata_tool_flags)
+
+        flags.update(payload.tool_flags.model_dump(mode="json", exclude_none=True))
+        for flag_name in TOOL_FLAG_NAMES:
+            request_value = getattr(payload, flag_name)
+            if request_value is not None:
+                flags[flag_name] = request_value
+        return flags
 
     def _execute_prepared(
         self,
@@ -387,6 +436,10 @@ class TaskService:
         normalized_request["metadata"] = self._build_common_metadata(
             prepared,
             task_id=None,
+        )
+        normalized_request["prompt"] = self._augment_prompt_with_conversation_history(
+            prepared.execution_payload.prompt,
+            prepared.execution_payload.conversation_history,
         )
         normalized_request["model"] = prepared.task_model_selection.upstream_model
         normalized_request["provider_id"] = prepared.task_model_selection.provider_id
@@ -582,6 +635,44 @@ class TaskService:
         for warning in academic_context.warnings:
             lines.append(f"- warning: {warning}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _augment_prompt_with_conversation_history(
+        prompt: str,
+        conversation_history: list[object],
+    ) -> str:
+        """Prefix the current prompt with recent conversation context."""
+        rendered_history = TaskService._format_conversation_history(conversation_history)
+        if not rendered_history:
+            return prompt
+        return "\n".join(
+            [
+                "Conversation so far:",
+                *rendered_history,
+                "",
+                "Current user request:",
+                prompt,
+            ]
+        )
+
+    @staticmethod
+    def _format_conversation_history(conversation_history: list[object]) -> list[str]:
+        """Render recent messages into a compact model-readable transcript."""
+        rendered: list[str] = []
+        for message in conversation_history[-16:]:
+            role = str(getattr(message, "role", "user"))
+            content = str(getattr(message, "content", "")).strip()
+            if not content:
+                continue
+            label = {
+                "assistant": "Assistant",
+                "system": "System",
+                "user": "User",
+            }.get(role, role.title())
+            if len(content) > 4000:
+                content = content[:3997] + "..."
+            rendered.append(f"{label}: {content}")
+        return rendered
 
 
 @lru_cache(maxsize=1)

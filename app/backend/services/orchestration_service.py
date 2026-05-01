@@ -315,10 +315,19 @@ class SerialOrchestrationService:
             f"Role: {stage.stage_name} ({stage.role})",
             f"Stage order: {stage.order}/{trace.total_stages}",
             f"Flow step: {stage.flow_step or stage.stage_id}",
-            f"User request: {payload.prompt}",
-            f"Repository path: {payload.repo_path or 'not provided'}",
-            f"Primary responsibility: {stage.instructions}",
         ]
+        conversation_lines = self._format_conversation_history(
+            payload.conversation_history,
+        )
+        if conversation_lines:
+            lines.extend(["Conversation so far:", *conversation_lines])
+        lines.extend(
+            [
+                f"User request: {payload.prompt}",
+                f"Repository path: {payload.repo_path or 'not provided'}",
+                f"Primary responsibility: {stage.instructions}",
+            ]
+        )
         if repo_analysis is not None:
             if repo_analysis.repo_summary is not None:
                 lines.append(f"Repository summary: {repo_analysis.repo_summary.summary_text}")
@@ -503,3 +512,22 @@ class SerialOrchestrationService:
         if len(compact) <= limit:
             return compact
         return compact[: limit - 3] + "..."
+
+    @staticmethod
+    def _format_conversation_history(conversation_history: list[object]) -> list[str]:
+        """Render recent conversation messages for stage prompts."""
+        rendered: list[str] = []
+        for message in conversation_history[-16:]:
+            role = str(getattr(message, "role", "user"))
+            content = str(getattr(message, "content", "")).strip()
+            if not content:
+                continue
+            label = {
+                "assistant": "Assistant",
+                "system": "System",
+                "user": "User",
+            }.get(role, role.title())
+            if len(content) > 4000:
+                content = content[:3997] + "..."
+            rendered.append(f"{label}: {content}")
+        return rendered

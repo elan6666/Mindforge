@@ -221,10 +221,32 @@ export function submitTask(payload: {
   github_repo?: string | null;
   github_issue_number?: number | null;
   github_pr_number?: number | null;
+  conversation_id?: string | null;
+  conversation_history?: Array<{
+    role: "user" | "assistant" | "system" | string;
+    content: string;
+    task_id?: string | null;
+    created_at?: string | null;
+    metadata?: Record<string, unknown>;
+  }>;
   journal_name?: string | null;
   journal_url?: string | null;
   reference_paper_urls?: string[];
   role_model_overrides?: Record<string, string>;
+  attachments?: Array<{
+    id?: string | null;
+    name?: string | null;
+    mime_type?: string | null;
+    size_bytes?: number | null;
+    text_excerpt?: string | null;
+    metadata?: Record<string, unknown>;
+  }>;
+  tool_flags?: {
+    web_search?: boolean | null;
+    deep_analysis?: boolean | null;
+    code_execution?: boolean | null;
+    canvas?: boolean | null;
+  };
   metadata?: Record<string, unknown>;
 }): Promise<TaskResult> {
   return requestJson<TaskResult>("/tasks", {

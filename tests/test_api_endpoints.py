@@ -210,6 +210,88 @@ def test_tasks_endpoint_returns_mock_openhands_response(isolated_history_storage
     assert body["data"]["metadata"]["task_model_selection"]["model_id"] == "gpt-5.4"
 
 
+def test_tasks_endpoint_persists_composer_metadata_to_history(isolated_history_storage):
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/tasks",
+        json={
+            "prompt": "Use attached context without prompt stuffing",
+            "attachments": [
+                {
+                    "id": "upload-1",
+                    "name": "notes.txt",
+                    "mime_type": "text/plain",
+                    "size_bytes": 42,
+                    "excerpt": "Important uploaded notes",
+                    "metadata": {"source": "composer", "line_count": 2},
+                }
+            ],
+            "tool_flags": {"deep_analysis": True},
+            "web_search": True,
+            "canvas": True,
+        },
+    )
+
+    body = response.json()
+    task_id = body["data"]["metadata"]["task_id"]
+
+    assert response.status_code == 200
+    assert body["data"]["metadata"]["attachments"][0]["text_excerpt"] == (
+        "Important uploaded notes"
+    )
+    assert body["data"]["metadata"]["tool_flags"]["web_search"] is True
+    assert body["data"]["metadata"]["tool_flags"]["deep_analysis"] is True
+    assert body["data"]["metadata"]["tool_flags"]["canvas"] is True
+    assert body["data"]["metadata"]["task_model_selection"]["model_id"] == "gpt-5.4"
+
+    history_response = client.get(f"/api/history/tasks/{task_id}")
+    history_body = history_response.json()
+
+    assert history_response.status_code == 200
+    assert history_body["metadata"]["attachments"][0]["metadata"]["source"] == "composer"
+    assert history_body["metadata"]["tool_flags"]["web_search"] is True
+    assert history_body["metadata"]["tool_flags"]["canvas"] is True
+    assert history_body["metadata"]["task_model_selection"]["model_id"] == "gpt-5.4"
+
+
+def test_tasks_endpoint_persists_conversation_context_to_history(isolated_history_storage):
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/tasks",
+        json={
+            "prompt": "Continue with implementation risks",
+            "conversation_id": "conversation-web-1",
+            "conversation_history": [
+                {"role": "user", "content": "Plan this feature", "task_id": "task-1"},
+                {
+                    "role": "assistant",
+                    "content": "Use a staged rollout",
+                    "task_id": "task-1",
+                },
+            ],
+        },
+    )
+
+    body = response.json()
+    task_id = body["data"]["metadata"]["task_id"]
+
+    assert response.status_code == 200
+    assert body["data"]["metadata"]["conversation_id"] == "conversation-web-1"
+    assert body["data"]["metadata"]["conversation_turn_count"] == 3
+
+    history_response = client.get(f"/api/history/tasks/{task_id}")
+    history_body = history_response.json()
+
+    assert history_response.status_code == 200
+    assert history_body["request_payload"]["conversation_id"] == "conversation-web-1"
+    assert history_body["metadata"]["conversation_history"][1]["role"] == "assistant"
+    assert history_body["metadata"]["conversation_history"][1]["content"] == (
+        "Use a staged rollout"
+    )
+
+
 def test_tasks_endpoint_returns_structured_400_for_unknown_preset(isolated_history_storage):
     client = TestClient(create_app())
 

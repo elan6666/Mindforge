@@ -85,6 +85,19 @@ const models: ModelSummary[] = [
   },
 ];
 
+const deepseekModel: ModelSummary = {
+  model_id: "deepseek-v3.2",
+  display_name: "deepseek-v3.2",
+  provider_id: "playwright-ark",
+  upstream_model: "deepseek-v3.2",
+  priority: "high",
+  enabled: true,
+  supported_preset_modes: [],
+  supported_task_types: [],
+  supported_roles: [],
+  is_custom: true,
+};
+
 const ruleTemplates: RuleTemplateSummary[] = [
   {
     template_id: "code-engineering-default",
@@ -365,11 +378,14 @@ describe("App workspace shell", () => {
       expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "打开工具菜单" }));
+    fireEvent.click(await screen.findByRole("button", { name: /任务配置/ }));
+
     expect(screen.getByText("仓库路径")).toBeInTheDocument();
     expect(screen.getByText("GitHub 仓库")).toBeInTheDocument();
     expect(screen.queryByText("期刊名称")).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByDisplayValue("代码工程"), {
+    fireEvent.change(screen.getByLabelText("预设模式"), {
       target: { value: "paper-revision" },
     });
 
@@ -386,13 +402,17 @@ describe("App workspace shell", () => {
       expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "打开工具菜单" }));
+    fireEvent.click(await screen.findByRole("button", { name: /任务配置/ }));
+    fireEvent.click(screen.getByRole("button", { name: "深度分析" }));
+    fireEvent.click(screen.getByRole("button", { name: "联网" }));
     fireEvent.change(screen.getByLabelText("协调模型"), {
       target: { value: "gpt-5.4" },
     });
     fireEvent.change(screen.getByLabelText("任务描述"), {
       target: { value: "请验证模型路由" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "提交任务" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送任务" }));
 
     await waitFor(() => {
       expect(api.submitTask).toHaveBeenCalledWith(
@@ -404,9 +424,189 @@ describe("App workspace shell", () => {
             frontend: "gpt-5.4",
             reviewer: "gpt-5.4",
           },
+          tool_flags: {
+            deep_analysis: true,
+            web_search: true,
+            code_execution: false,
+            canvas: false,
+          },
+          metadata: {},
         }),
       );
     });
+  });
+
+  it("keeps follow-up turns in the same conversation", async () => {
+    vi.mocked(api.fetchHistoryTasks).mockResolvedValue([]);
+    const submittedDetails: Record<string, TaskHistoryDetail> = {};
+    vi.mocked(api.fetchTaskHistoryDetail).mockImplementation(async (taskId) => {
+      return submittedDetails[taskId] || historyDetail;
+    });
+    let submissionIndex = 0;
+    vi.mocked(api.submitTask).mockImplementation(async (payload) => {
+      submissionIndex += 1;
+      const taskId = `task-followup-${submissionIndex}`;
+      const output = `回答 ${submissionIndex}`;
+      submittedDetails[taskId] = {
+        ...historyDetail,
+        task_id: taskId,
+        prompt: payload.prompt,
+        status: "completed",
+        provider: "mock-openhands",
+        message: "已完成",
+        output,
+        error_message: null,
+        request_payload: payload,
+        metadata: {
+          conversation_id: payload.conversation_id,
+          conversation_history: payload.conversation_history || [],
+        },
+        stages: [],
+        approval: null,
+        requires_approval: false,
+        approval_status: null,
+      };
+      return {
+        status: "completed",
+        message: "已完成",
+        error_message: null,
+        data: {
+          output,
+          provider: "mock-openhands",
+          metadata: {
+            task_id: taskId,
+            conversation_id: payload.conversation_id,
+          },
+        },
+      };
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("GPT-5.4")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("任务描述"), {
+      target: { value: "第一轮" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送任务" }));
+
+    await waitFor(() => {
+      expect(api.submitTask).toHaveBeenCalledTimes(1);
+    });
+    const firstPayload = vi.mocked(api.submitTask).mock.calls[0][0];
+    expect(firstPayload.conversation_id).toMatch(/^conversation-/);
+    expect(firstPayload.conversation_history).toEqual([]);
+    expect((await screen.findAllByText("回答 1")).length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText("任务描述"), {
+      target: { value: "继续说明风险" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送任务" }));
+
+    await waitFor(() => {
+      expect(api.submitTask).toHaveBeenCalledTimes(2);
+    });
+    const secondPayload = vi.mocked(api.submitTask).mock.calls[1][0];
+    expect(secondPayload.conversation_id).toBe(firstPayload.conversation_id);
+    expect(secondPayload.conversation_history).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: "user", content: "第一轮" }),
+        expect.objectContaining({ role: "assistant", content: "回答 1" }),
+      ]),
+    );
+    expect((await screen.findAllByText("回答 2")).length).toBeGreaterThan(0);
+    expect(screen.getByText("第一轮")).toBeInTheDocument();
+    expect(screen.getByText("继续说明风险")).toBeInTheDocument();
+  });
+
+  it("uses the plus menu for configuration and uploads, then clears composer state for a new task", async () => {
+    render(<App />);
+
+    await waitFor(() => {
+      expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "打开工具菜单" }));
+    expect(await screen.findByRole("button", { name: /任务配置/ })).toBeInTheDocument();
+    const fileInput = screen.getByLabelText("上传文件") as HTMLInputElement;
+    const file = new File(["hello from fixture"], "notes.txt", { type: "text/plain" });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    expect(await screen.findByText("notes.txt")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("任务描述"), {
+      target: { value: "新的临时任务" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^新任务$/ }));
+
+    expect(screen.getByText(/开启一次新的 Mindforge 对话/)).toBeInTheDocument();
+    expect(screen.getByLabelText("任务描述")).toHaveValue("");
+    expect(screen.queryByText("notes.txt")).not.toBeInTheDocument();
+  });
+
+  it("submits uploaded files as structured attachments", async () => {
+    render(<App />);
+
+    await waitFor(() => {
+      expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "打开工具菜单" }));
+    const fileInput = await screen.findByLabelText("上传文件");
+    const file = new File(["structured upload text"], "brief.md", {
+      type: "text/markdown",
+    });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    expect(await screen.findByText("brief.md")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("任务描述"), {
+      target: { value: "读取附件并总结" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送任务" }));
+
+    await waitFor(() => {
+      expect(api.submitTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: "读取附件并总结",
+          attachments: [
+            expect.objectContaining({
+              name: "brief.md",
+              mime_type: "text/markdown",
+              size_bytes: file.size,
+              text_excerpt: "structured upload text",
+              metadata: expect.objectContaining({
+                source: "composer-upload",
+                truncated: false,
+                has_text_excerpt: true,
+              }),
+            }),
+          ],
+        }),
+      );
+    });
+  });
+
+  it("only exposes user-added models in the coordinator selector", async () => {
+    vi.mocked(api.fetchModels).mockResolvedValue([models[0], deepseekModel]);
+    vi.mocked(api.fetchEditableModels).mockResolvedValue([deepseekModel]);
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "打开工具菜单" }));
+    fireEvent.click(await screen.findByRole("button", { name: /任务配置/ }));
+
+    const coordinator = (await screen.findByLabelText(
+      "协调模型",
+    )) as HTMLSelectElement;
+
+    await waitFor(() => {
+      expect(coordinator.value).toBe("deepseek-v3.2");
+    });
+    expect(Array.from(coordinator.options).map((option) => option.value)).toEqual([
+      "deepseek-v3.2",
+    ]);
+    expect(screen.queryByText("GPT-5.4 / openai")).not.toBeInTheDocument();
   });
 
   it("switches into model control and rule template views", async () => {
