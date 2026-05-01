@@ -320,6 +320,13 @@ a:hover::after {
   transition: all var(--duration-normal) var(--ease-out-expo);
 }
 
+.history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  position: relative;
+}
+
 .history-item.active,
 .history-item:hover {
   border-color: rgba(119, 213, 189, 0.32);
@@ -332,6 +339,41 @@ a:hover::after {
 
 .history-item.active {
   border-color: rgba(119, 213, 189, 0.5);
+}
+
+.history-delete {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  transform: translateY(-50%);
+  border: 1px solid rgba(244, 238, 222, 0.08);
+  border-radius: 999px;
+  padding: 0;
+  background: rgba(5, 6, 7, 0.58);
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0;
+  backdrop-filter: blur(12px);
+}
+
+.history-row:hover .history-delete,
+.history-row:focus-within .history-delete {
+  opacity: 1;
+}
+
+.history-delete:hover:not(:disabled) {
+  border-color: rgba(240, 127, 116, 0.42);
+  background: rgba(240, 127, 116, 0.12);
+  color: #ffd6d2;
+  transform: translateY(-50%) scale(1.04);
+}
+
+.history-delete:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 .nav-item small,
@@ -587,6 +629,49 @@ a:hover::after {
   max-width: 520px;
 }
 
+.quick-start-grid {
+  width: min(100%, 660px);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.quick-start-card {
+  min-height: 106px;
+  border: 1px solid rgba(244, 238, 222, 0.1);
+  border-radius: 20px;
+  padding: 15px;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(119, 213, 189, 0.12), transparent 62%),
+    rgba(244, 238, 222, 0.025);
+  color: var(--text);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.quick-start-card:hover {
+  border-color: rgba(201, 156, 90, 0.35);
+  background:
+    radial-gradient(circle at 18% 0%, rgba(201, 156, 90, 0.18), transparent 62%),
+    rgba(244, 238, 222, 0.045);
+  transform: translateY(-2px);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.22);
+}
+
+.quick-start-card span {
+  font-family: var(--font-display);
+  color: var(--text);
+  font-size: 1.02rem;
+}
+
+.quick-start-card small {
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
 .chat-composer {
   position: sticky;
   bottom: 18px;
@@ -634,6 +719,13 @@ a:hover::after {
 
 .composer-control-grid textarea {
   min-height: 92px;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
 }
 
 .attachment-strip {
@@ -849,6 +941,12 @@ a:hover::after {
   max-width: 170px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.composer-shortcut {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  white-space: nowrap;
 }
 
 .send-button {
@@ -1635,6 +1733,14 @@ textarea {
 
   .composer-chip {
     max-width: 100%;
+  }
+
+  .quick-start-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .composer-shortcut {
+    display: none;
   }
 
   .send-button {

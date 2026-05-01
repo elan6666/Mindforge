@@ -116,6 +116,37 @@ def test_submit_includes_conversation_history_metadata_and_prompt_context(tmp_pa
     assert "What are the remaining risks?" in response.data.output
 
 
+def test_submit_includes_requested_skills_metadata_and_prompt_context(tmp_path):
+    service = make_service(tmp_path, openhands_mode="mock")
+
+    response = service.submit(
+        TaskRequest(
+            prompt="Polish the web app",
+            skills=["frontend-design", "gsd-do", "frontend-design"],
+        )
+    )
+
+    assert response.status == "completed"
+    assert response.data.metadata["skills"] == ["frontend-design", "gsd-do"]
+    assert "Requested skills:" in response.data.output
+    assert "- frontend-design" in response.data.output
+    assert "- gsd-do" in response.data.output
+
+
+def test_lightweight_greeting_does_not_trigger_code_orchestration(tmp_path):
+    service = make_service(tmp_path, openhands_mode="mock")
+
+    response = service.submit(
+        TaskRequest(prompt="你好", preset_mode="code-engineering")
+    )
+
+    assert response.status == "completed"
+    assert response.data.provider == "mindforge-intake"
+    assert response.data.metadata["execution_mode"] == "plain-chat"
+    assert "orchestration" not in response.data.metadata
+    assert "你好" in response.data.output
+
+
 def test_submit_unknown_preset_returns_failed_response(tmp_path):
     service = make_service(tmp_path, openhands_mode="mock")
 

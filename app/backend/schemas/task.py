@@ -137,6 +137,10 @@ class TaskRequest(BaseModel):
         validation_alias=AliasChoices("conversation_history", "conversationHistory"),
         description="Prior messages in the same conversation, excluding the current prompt.",
     )
+    skills: list[str] = Field(
+        default_factory=list,
+        description="Optional skill identifiers or paths the runtime should consider for this task.",
+    )
     github_repo: str | None = Field(
         default=None,
         description="Optional GitHub repository reference such as owner/repo.",

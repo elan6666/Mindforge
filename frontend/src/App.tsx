@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import {
   approveTask,
   createModelControl,
   createProviderControl,
   createRuleTemplate,
+  deleteConversationHistory,
+  deleteHistoryTask,
   deleteModelControl,
   deleteProviderControl,
   deleteRuleTemplate,
@@ -79,6 +81,15 @@ type ComposerCapabilityKey =
   | "web_search"
   | "code_execution"
   | "canvas";
+type QuickStartAction = {
+  label: string;
+  description: string;
+  prompt: string;
+  presetMode: string;
+  taskType?: string;
+  skills?: string;
+  flags?: Partial<Record<ComposerCapabilityKey, boolean>>;
+};
 
 const COMPOSER_CAPABILITIES: Array<{
   key: ComposerCapabilityKey;
@@ -97,6 +108,33 @@ const DEFAULT_CAPABILITY_FLAGS: Record<ComposerCapabilityKey, boolean> = {
   code_execution: false,
   canvas: false,
 };
+
+const QUICK_START_ACTIONS: QuickStartAction[] = [
+  {
+    label: "普通对话",
+    description: "先问清楚，再决定是否启动多 Agent。",
+    prompt: "你好，先帮我梳理一下我接下来应该怎么描述任务。",
+    presetMode: "default",
+  },
+  {
+    label: "代码工程",
+    description: "适合仓库改造、Bug 修复、功能实现。",
+    prompt: "请帮我分析这个代码任务，并给出可执行的实现方案：",
+    presetMode: "code-engineering",
+    taskType: "planning",
+    skills: "frontend-design",
+    flags: { deep_analysis: true, code_execution: true },
+  },
+  {
+    label: "论文修改",
+    description: "适合期刊规范、文风、审稿人式反馈。",
+    prompt: "请按期刊论文标准帮我修改下面这段内容：",
+    presetMode: "paper-revision",
+    taskType: "writing",
+    skills: "academic-paper-reviewer, academic-writing-style",
+    flags: { deep_analysis: true, web_search: true },
+  },
+];
 
 const PRESET_FIELD_CONFIGS: Record<string, PresetFieldConfig> = {
   default: {
@@ -531,6 +569,19 @@ function parseUrlList(value: string): string[] {
     .filter(Boolean);
 }
 
+function parseSkillList(value: string): string[] {
+  const seen = new Set<string>();
+  return value
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => {
+      if (seen.has(item)) return false;
+      seen.add(item);
+      return true;
+    });
+}
+
 function optionalText(value?: string | null): string | null {
   const trimmed = value?.trim() || "";
   return trimmed ? trimmed : null;
@@ -637,7 +688,7 @@ export function App() {
   const [prompt, setPrompt] = useState("");
   const [conversationId, setConversationId] = useState(() => createClientId("conversation"));
   const [conversationMessages, setConversationMessages] = useState<ChatMessage[]>([]);
-  const [presetMode, setPresetMode] = useState("code-engineering");
+  const [presetMode, setPresetMode] = useState("default");
   const [repoPath, setRepoPath] = useState("");
   const [taskType, setTaskType] = useState("");
   const [modelOverride, setModelOverride] = useState("");
@@ -648,6 +699,7 @@ export function App() {
   const [journalName, setJournalName] = useState("");
   const [journalUrl, setJournalUrl] = useState("");
   const [referencePaperUrls, setReferencePaperUrls] = useState("");
+  const [skillNames, setSkillNames] = useState("");
   const [requiresApproval, setRequiresApproval] = useState(false);
   const [approvalActions, setApprovalActions] = useState("写入文件");
   const [isToolMenuOpen, setIsToolMenuOpen] = useState(false);
@@ -657,6 +709,7 @@ export function App() {
     Record<ComposerCapabilityKey, boolean>
   >(DEFAULT_CAPABILITY_FLAGS);
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
+  const [deletingConversationKey, setDeletingConversationKey] = useState<string | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -738,6 +791,7 @@ export function App() {
   const selectedRuleTemplateName =
     filteredTemplates.find((template) => template.template_id === ruleTemplateId)?.display_name ||
     "自动选择";
+  const selectedSkills = useMemo(() => parseSkillList(skillNames), [skillNames]);
   const conversationHistoryItems = useMemo(
     () => groupHistoryConversations(historyItems),
     [historyItems],
@@ -778,11 +832,7 @@ export function App() {
     ]);
     setHistoryItems(history);
     setPendingApprovals(approvals);
-    const targetTaskId =
-      nextActiveTaskId ||
-      activeTaskId ||
-      groupHistoryConversations(history)[0]?.task_id ||
-      null;
+    const targetTaskId = nextActiveTaskId || activeTaskId || null;
     if (targetTaskId) {
       const loadedConversation = await loadConversationFromTask(targetTaskId);
       setActiveTaskId(loadedConversation.activeDetail.task_id);
@@ -932,10 +982,26 @@ export function App() {
       setConversationId(createClientId("conversation"));
       setConversationMessages([]);
       setAttachments([]);
+      setSkillNames("");
+      setCapabilityFlags(DEFAULT_CAPABILITY_FLAGS);
       setSubmitError(null);
       setIsToolMenuOpen(false);
       setIsTaskConfigOpen(false);
     }
+  }
+
+  function handleQuickStart(action: QuickStartAction) {
+    setPrompt(action.prompt);
+    setPresetMode(action.presetMode);
+    setTaskType(action.taskType || "");
+    setSkillNames(action.skills || "");
+    setCapabilityFlags({
+      ...DEFAULT_CAPABILITY_FLAGS,
+      ...(action.flags || {}),
+    });
+    setIsTaskConfigOpen(Boolean(action.skills || action.flags || action.taskType));
+    setIsToolMenuOpen(false);
+    setSubmitError(null);
   }
 
   async function handleHistorySelect(taskId: string) {
@@ -947,6 +1013,38 @@ export function App() {
     setActiveTab("output");
     setView("workspace");
     setActiveNavId("history");
+  }
+
+  async function handleDeleteHistoryItem(task: TaskHistorySummary) {
+    const deleteKey = task.conversation_id || `task:${task.task_id}`;
+    const deletingActive =
+      task.task_id === activeTaskId ||
+      (Boolean(task.conversation_id) && task.conversation_id === conversationId);
+    setDeletingConversationKey(deleteKey);
+    setSubmitError(null);
+    try {
+      if (task.conversation_id) {
+        await deleteConversationHistory(task.conversation_id);
+      } else {
+        await deleteHistoryTask(task.task_id);
+      }
+      setHistoryItems((current) =>
+        current.filter((item) =>
+          task.conversation_id
+            ? item.conversation_id !== task.conversation_id
+            : item.task_id !== task.task_id,
+        ),
+      );
+      if (deletingActive) {
+        handleNavClick("new-task", "workspace");
+      } else if (activeTaskId) {
+        await refreshHistory(activeTaskId);
+      }
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "删除对话失败。");
+    } finally {
+      setDeletingConversationKey(null);
+    }
   }
 
   async function handleAttachmentInput(event: ChangeEvent<HTMLInputElement>) {
@@ -967,6 +1065,14 @@ export function App() {
       ...current,
       [key]: !current[key],
     }));
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+      return;
+    }
+    event.preventDefault();
+    void handleSubmit();
   }
 
   async function handleSubmit() {
@@ -1007,6 +1113,7 @@ export function App() {
         rule_template_id: ruleTemplateId || undefined,
         conversation_id: currentConversationId,
         conversation_history: buildConversationHistory(priorMessages),
+        skills: selectedSkills,
         github_repo: fieldConfig.showGitHub ? githubRepo || undefined : undefined,
         github_issue_number:
           fieldConfig.showGitHub && githubIssueNumber
@@ -1433,6 +1540,19 @@ export function App() {
                 <div className="empty-hint chat-empty">
                   <strong>开启一次新的 Mindforge 对话</strong>
                   <span>直接输入任务。需要预设、模型、仓库、期刊或审批时，点击左下角 + 配置。</span>
+                  <div className="quick-start-grid" aria-label="快速开始">
+                    {QUICK_START_ACTIONS.map((action) => (
+                      <button
+                        key={action.label}
+                        type="button"
+                        className="quick-start-card"
+                        onClick={() => handleQuickStart(action)}
+                      >
+                        <span>{action.label}</span>
+                        <small>{action.description}</small>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -1506,6 +1626,19 @@ export function App() {
                           </option>
                         ))}
                       </select>
+                    </label>
+                    <label className="full-width">
+                      <span>Skills</span>
+                      <input
+                        type="text"
+                        aria-label="Skills"
+                        value={skillNames}
+                        placeholder="frontend-design, gsd-do, academic-paper-reviewer"
+                        onChange={(event) => setSkillNames(event.target.value)}
+                      />
+                      <small className="field-hint">
+                        多个 Skill 用逗号或换行分隔；当前会随任务发送给后端并写入历史。
+                      </small>
                     </label>
                     {selectedPresetFields.showGitHub && (
                       <>
@@ -1623,6 +1756,7 @@ export function App() {
                 aria-label="任务描述"
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
+                onKeyDown={handleComposerKeyDown}
                 placeholder="有问题，尽管问。也可以描述你希望 Mindforge 完成的工程、论文或资料整理任务。"
               />
               <div className="composer-toolbar">
@@ -1684,10 +1818,14 @@ export function App() {
                     <span className="composer-chip">{formatTaskType(taskType)}</span>
                     <span className="composer-chip">{selectedModelName}</span>
                     <span className="composer-chip">{selectedRuleTemplateName}</span>
+                    {selectedSkills.length > 0 && (
+                      <span className="composer-chip">{selectedSkills.length} 个 Skills</span>
+                    )}
                     {attachments.length > 0 && (
                       <span className="composer-chip">{attachments.length} 个附件</span>
                     )}
                   </div>
+                  <div className="composer-shortcut">Enter 发送，Shift+Enter 换行</div>
                 </div>
                 <button
                   type="button"
@@ -3003,24 +3141,38 @@ export function App() {
             {conversationHistoryItems.length === 0 ? (
               <div className="empty-hint">暂无历史对话。</div>
             ) : (
-              conversationHistoryItems.map((task) => (
-                <button
-                  key={task.conversation_id || task.task_id}
-                  type="button"
-                  className={`history-item ${
-                    task.task_id === activeTaskId || task.conversation_id === conversationId
-                      ? "active"
-                      : ""
-                  }`}
-                  onClick={() => void handleHistorySelect(task.task_id)}
-                >
-                  <span>{formatTitle(task.prompt)}</span>
-                  <small>
-                    {formatStatus(task.status)} / {formatDate(task.updated_at)}
-                    {task.conversation_turn_count ? ` / ${task.conversation_turn_count} 轮` : ""}
-                  </small>
-                </button>
-              ))
+              conversationHistoryItems.map((task) => {
+                const deleteKey = task.conversation_id || `task:${task.task_id}`;
+                const isActive =
+                  task.task_id === activeTaskId || task.conversation_id === conversationId;
+                return (
+                  <div
+                    key={deleteKey}
+                    className={`history-row ${isActive ? "active" : ""}`}
+                  >
+                    <button
+                      type="button"
+                      className={`history-item ${isActive ? "active" : ""}`}
+                      onClick={() => void handleHistorySelect(task.task_id)}
+                    >
+                      <span>{formatTitle(task.prompt)}</span>
+                      <small>
+                        {formatStatus(task.status)} / {formatDate(task.updated_at)}
+                        {task.conversation_turn_count ? ` / ${task.conversation_turn_count} 轮` : ""}
+                      </small>
+                    </button>
+                    <button
+                      type="button"
+                      className="history-delete"
+                      aria-label={`删除对话 ${formatTitle(task.prompt)}`}
+                      disabled={deletingConversationKey === deleteKey}
+                      onClick={() => void handleDeleteHistoryItem(task)}
+                    >
+                      {deletingConversationKey === deleteKey ? "..." : "×"}
+                    </button>
+                  </div>
+                );
+              })
             )}
           </div>
         </section>
@@ -3059,8 +3211,8 @@ export function App() {
             </p>
           </div>
           <div className="status-row">
-            <span className="pill accent">Phase 11</span>
-            <span className="pill">论文修改已就绪</span>
+            <span className="pill accent">本地工作台</span>
+            <span className="pill">对话上下文：当前会话</span>
             <span className="pill">{customModels.length} 个模型</span>
             <span className="pill">{providers.length} 个模型服务商</span>
             <span className="pill">{ruleTemplates.length} 个模板</span>

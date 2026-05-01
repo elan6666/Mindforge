@@ -33,6 +33,19 @@ def get_history_task_detail(
     return detail
 
 
+@router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_history_task(
+    task_id: str,
+    service: HistoryService = Depends(get_history_service),
+) -> None:
+    """Delete one task history row."""
+    if not service.delete_task(task_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown task '{task_id}'.",
+        )
+
+
 @router.get("/conversations/{conversation_id}/tasks", response_model=list[TaskHistoryDetail])
 def list_conversation_task_details(
     conversation_id: str,
@@ -47,3 +60,16 @@ def list_conversation_task_details(
             detail=f"Unknown conversation '{conversation_id}'.",
         )
     return details
+
+
+@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_conversation_history(
+    conversation_id: str,
+    service: HistoryService = Depends(get_history_service),
+) -> None:
+    """Delete all task turns in one conversation."""
+    if service.delete_conversation(conversation_id) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown conversation '{conversation_id}'.",
+        )

@@ -227,6 +227,12 @@ class SQLiteStore:
             rows = connection.execute(query, params).fetchall()
         return [self._normalize_task_row(row) for row in rows]
 
+    def list_all_task_runs(self) -> list[dict[str, Any]]:
+        """Return all task rows for maintenance operations such as conversation delete."""
+        with self._connect() as connection:
+            rows = connection.execute("SELECT * FROM task_runs").fetchall()
+        return [self._normalize_task_row(row) for row in rows]
+
     def get_task_run(self, task_id: str) -> dict[str, Any] | None:
         """Fetch one task row by id."""
         with self._connect() as connection:
@@ -235,6 +241,30 @@ class SQLiteStore:
                 (task_id,),
             ).fetchone()
         return self._normalize_task_row(row) if row is not None else None
+
+    def delete_task_runs(self, task_ids: list[str]) -> int:
+        """Delete task rows and their dependent stage/approval rows."""
+        if not task_ids:
+            return 0
+        with self._connect() as connection:
+            placeholders = ",".join("?" for _ in task_ids)
+            connection.execute(
+                f"DELETE FROM stage_runs WHERE task_id IN ({placeholders})",
+                task_ids,
+            )
+            connection.execute(
+                f"DELETE FROM approvals WHERE task_id IN ({placeholders})",
+                task_ids,
+            )
+            cursor = connection.execute(
+                f"DELETE FROM task_runs WHERE task_id IN ({placeholders})",
+                task_ids,
+            )
+        return int(cursor.rowcount)
+
+    def delete_task_run(self, task_id: str) -> bool:
+        """Delete one task row and return whether a row was removed."""
+        return self.delete_task_runs([task_id]) > 0
 
     def get_stage_runs(self, task_id: str) -> list[dict[str, Any]]:
         """Fetch persisted stages for one task."""

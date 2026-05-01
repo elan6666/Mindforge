@@ -168,6 +168,19 @@ class HistoryService:
         details = [self.get_task_detail(row["task_id"]) for row in rows]
         return [detail for detail in details if detail is not None]
 
+    def delete_task(self, task_id: str) -> bool:
+        """Delete a single task history row."""
+        return self.store.delete_task_run(task_id)
+
+    def delete_conversation(self, conversation_id: str) -> int:
+        """Delete every task turn belonging to one conversation."""
+        task_ids = [
+            str(row["task_id"])
+            for row in self.store.list_all_task_runs()
+            if self._conversation_id_from_row(row) == conversation_id
+        ]
+        return self.store.delete_task_runs(task_ids)
+
     def get_task_detail(self, task_id: str) -> TaskHistoryDetail | None:
         """Return one task detail including persisted stages and approval."""
         row = self.store.get_task_run(task_id)

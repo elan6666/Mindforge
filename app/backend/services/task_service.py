@@ -52,6 +52,16 @@ from app.backend.services.repository_service import RepositoryAnalysisService
 from app.backend.services.result_normalizer import normalize_task_result
 
 TOOL_FLAG_NAMES = ("web_search", "deep_analysis", "code_execution", "canvas")
+LIGHTWEIGHT_CHAT_PROMPTS = {
+    "hi",
+    "hello",
+    "hey",
+    "你好",
+    "您好",
+    "嗨",
+    "哈喽",
+    "hello there",
+}
 
 
 @dataclass(slots=True)
@@ -331,6 +341,8 @@ class TaskService:
                 for message in payload.conversation_history
             ]
             metadata["conversation_turn_count"] = len(payload.conversation_history) + 1
+        if payload.skills:
+            metadata["skills"] = TaskService._normalize_skills(payload.skills)
         if payload.attachments:
             metadata["attachments"] = [
                 attachment.model_dump(mode="json", exclude_none=True)
@@ -383,7 +395,9 @@ class TaskService:
                 "openhands_mode": self.settings.openhands_mode,
             },
         )
-        if prepared.preset.preset_mode in {"code-engineering", "paper-revision"}:
+        if self._should_handle_as_plain_chat(prepared.execution_payload):
+            response = self._build_plain_chat_response(prepared)
+        elif prepared.preset.preset_mode in {"code-engineering", "paper-revision"}:
             try:
                 response = self.orchestrator.execute_preset(
                     prepared.execution_payload,
@@ -440,6 +454,10 @@ class TaskService:
         normalized_request["prompt"] = self._augment_prompt_with_conversation_history(
             prepared.execution_payload.prompt,
             prepared.execution_payload.conversation_history,
+        )
+        normalized_request["prompt"] = self._augment_prompt_with_skills(
+            normalized_request["prompt"],
+            prepared.execution_payload.skills,
         )
         normalized_request["model"] = prepared.task_model_selection.upstream_model
         normalized_request["provider_id"] = prepared.task_model_selection.provider_id
@@ -519,6 +537,24 @@ class TaskService:
         if task_id is not None:
             metadata["task_id"] = task_id
         return metadata
+
+    def _build_plain_chat_response(self, prepared: PreparedTaskExecution) -> TaskResponse:
+        """Answer lightweight chat without invoking a role-based engineering flow."""
+        return TaskResponse(
+            status="completed",
+            message="Lightweight chat handled.",
+            data=TaskResponseData(
+                output=(
+                    "你好！我是 Mindforge。你可以直接问我问题，或者点击左下角 + "
+                    "选择预设、模型、Skills、仓库、文件等上下文后再发起任务。"
+                ),
+                provider="mindforge-intake",
+                metadata={
+                    "execution_mode": "plain-chat",
+                    "resolved_preset_mode": prepared.preset.preset_mode,
+                },
+            ),
+        )
 
     def _build_pending_approval_response(
         self,
@@ -652,6 +688,56 @@ class TaskService:
                 "",
                 "Current user request:",
                 prompt,
+            ]
+        )
+
+    @staticmethod
+    def _augment_prompt_with_skills(prompt: str, skills: list[str]) -> str:
+        """Append requested skill hints for runtimes that support skill loading."""
+        normalized = TaskService._normalize_skills(skills)
+        if not normalized:
+            return prompt
+        return "\n".join(
+            [
+                prompt,
+                "",
+                "Requested skills:",
+                *[f"- {skill}" for skill in normalized],
+            ]
+        )
+
+    @staticmethod
+    def _normalize_skills(skills: list[str]) -> list[str]:
+        """Remove empty and duplicate skill ids while preserving user order."""
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for skill in skills:
+            value = str(skill).strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            normalized.append(value)
+        return normalized
+
+    @staticmethod
+    def _should_handle_as_plain_chat(payload: TaskRequest) -> bool:
+        """Avoid launching multi-agent orchestration for a bare greeting."""
+        prompt = payload.prompt.strip().lower()
+        prompt = prompt.strip(" \t\r\n!?！。.,，~～")
+        if prompt not in LIGHTWEIGHT_CHAT_PROMPTS:
+            return False
+        return not any(
+            [
+                payload.task_type,
+                payload.rule_template_id,
+                payload.repo_path,
+                payload.github_repo,
+                payload.github_issue_number,
+                payload.github_pr_number,
+                payload.journal_name,
+                payload.journal_url,
+                payload.reference_paper_urls,
+                payload.attachments,
             ]
         )
 

@@ -166,11 +166,26 @@ export function fetchTaskHistoryDetail(taskId: string): Promise<TaskHistoryDetai
   return requestJson<TaskHistoryDetail>(`/history/tasks/${taskId}`);
 }
 
+export function deleteHistoryTask(taskId: string): Promise<void> {
+  return requestJson<void>(`/history/tasks/${encodeURIComponent(taskId)}`, {
+    method: "DELETE",
+  });
+}
+
 export function fetchConversationHistory(
   conversationId: string,
 ): Promise<TaskHistoryDetail[]> {
   return requestJson<TaskHistoryDetail[]>(
     `/history/conversations/${encodeURIComponent(conversationId)}/tasks`,
+  );
+}
+
+export function deleteConversationHistory(conversationId: string): Promise<void> {
+  return requestJson<void>(
+    `/history/conversations/${encodeURIComponent(conversationId)}`,
+    {
+      method: "DELETE",
+    },
   );
 }
 
@@ -237,6 +252,7 @@ export function submitTask(payload: {
     created_at?: string | null;
     metadata?: Record<string, unknown>;
   }>;
+  skills?: string[];
   journal_name?: string | null;
   journal_url?: string | null;
   reference_paper_urls?: string[];

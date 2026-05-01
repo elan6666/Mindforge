@@ -19,6 +19,8 @@ vi.mock("./lib/api", () => ({
   createModelControl: vi.fn(),
   createProviderControl: vi.fn(),
   createRuleTemplate: vi.fn(),
+  deleteConversationHistory: vi.fn(),
+  deleteHistoryTask: vi.fn(),
   deleteModelControl: vi.fn(),
   deleteProviderControl: vi.fn(),
   deleteRuleTemplate: vi.fn(),
@@ -289,6 +291,8 @@ function setupApiMocks() {
   vi.mocked(api.fetchPendingApprovals).mockResolvedValue([approval]);
   vi.mocked(api.fetchTaskHistoryDetail).mockResolvedValue(historyDetail);
   vi.mocked(api.fetchConversationHistory).mockResolvedValue([historyDetail]);
+  vi.mocked(api.deleteHistoryTask).mockResolvedValue(undefined);
+  vi.mocked(api.deleteConversationHistory).mockResolvedValue(undefined);
   vi.mocked(api.approveTask).mockResolvedValue(approvalResult);
   vi.mocked(api.rejectTask).mockResolvedValue({
     ...approvalResult,
@@ -348,6 +352,19 @@ function setupApiMocks() {
   });
 }
 
+async function waitForWorkspaceData() {
+  await waitFor(() => {
+    expect(api.fetchHistoryTasks).toHaveBeenCalled();
+  });
+}
+
+async function openFirstHistoryConversation() {
+  fireEvent.click(await screen.findByText("Implement login flow"));
+  await waitFor(() => {
+    expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
+  });
+}
+
 describe("App workspace shell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -361,9 +378,7 @@ describe("App workspace shell", () => {
   it("renders the workspace shell with history and backend context", async () => {
     render(<App />);
 
-    await waitFor(() => {
-      expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
-    });
+    await waitForWorkspaceData();
 
     expect(screen.getByText("Mindforge 控制工作台")).toBeInTheDocument();
     expect(screen.getByText("任务工作台")).toBeInTheDocument();
@@ -376,12 +391,17 @@ describe("App workspace shell", () => {
   it("shows task fields according to the selected preset", async () => {
     render(<App />);
 
-    await waitFor(() => {
-      expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
-    });
+    await waitForWorkspaceData();
 
     fireEvent.click(screen.getByRole("button", { name: "打开工具菜单" }));
     fireEvent.click(await screen.findByRole("button", { name: /任务配置/ }));
+
+    expect(screen.queryByText("仓库路径")).not.toBeInTheDocument();
+    expect(screen.queryByText("GitHub 仓库")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("预设模式"), {
+      target: { value: "code-engineering" },
+    });
 
     expect(screen.getByText("仓库路径")).toBeInTheDocument();
     expect(screen.getByText("GitHub 仓库")).toBeInTheDocument();
@@ -397,19 +417,54 @@ describe("App workspace shell", () => {
     expect(screen.queryByText("GitHub 仓库")).not.toBeInTheDocument();
   });
 
+  it("offers quick starts and sends with Enter", async () => {
+    render(<App />);
+
+    await waitForWorkspaceData();
+
+    fireEvent.click(screen.getByRole("button", { name: /代码工程/ }));
+
+    expect(screen.getByLabelText("任务描述")).toHaveValue(
+      "请帮我分析这个代码任务，并给出可执行的实现方案：",
+    );
+    expect(screen.getByLabelText("预设模式")).toHaveValue("code-engineering");
+    expect(screen.getByLabelText("Skills")).toHaveValue("frontend-design");
+    expect(screen.getByRole("button", { name: "深度分析" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    fireEvent.change(screen.getByLabelText("任务描述"), {
+      target: { value: "用默认助手打个招呼" },
+    });
+    fireEvent.keyDown(screen.getByLabelText("任务描述"), {
+      key: "Enter",
+      code: "Enter",
+      shiftKey: false,
+    });
+
+    await waitFor(() => {
+      expect(api.submitTask).toHaveBeenCalled();
+    });
+  });
+
   it("submits selected model as role overrides for multi-agent presets", async () => {
     render(<App />);
 
-    await waitFor(() => {
-      expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
-    });
+    await waitForWorkspaceData();
 
     fireEvent.click(screen.getByRole("button", { name: "打开工具菜单" }));
     fireEvent.click(await screen.findByRole("button", { name: /任务配置/ }));
+    fireEvent.change(screen.getByLabelText("预设模式"), {
+      target: { value: "code-engineering" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "深度分析" }));
     fireEvent.click(screen.getByRole("button", { name: "联网" }));
     fireEvent.change(screen.getByLabelText("协调模型"), {
       target: { value: "gpt-5.4" },
+    });
+    fireEvent.change(screen.getByLabelText("Skills"), {
+      target: { value: "frontend-design, gsd-do, frontend-design" },
     });
     fireEvent.change(screen.getByLabelText("任务描述"), {
       target: { value: "请验证模型路由" },
@@ -432,6 +487,7 @@ describe("App workspace shell", () => {
             code_execution: false,
             canvas: false,
           },
+          skills: ["frontend-design", "gsd-do"],
           metadata: {},
         }),
       );
@@ -529,9 +585,7 @@ describe("App workspace shell", () => {
   it("uses the plus menu for configuration and uploads, then clears composer state for a new task", async () => {
     render(<App />);
 
-    await waitFor(() => {
-      expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
-    });
+    await waitForWorkspaceData();
 
     fireEvent.click(screen.getByRole("button", { name: "打开工具菜单" }));
     expect(await screen.findByRole("button", { name: /任务配置/ })).toBeInTheDocument();
@@ -554,9 +608,7 @@ describe("App workspace shell", () => {
   it("submits uploaded files as structured attachments", async () => {
     render(<App />);
 
-    await waitFor(() => {
-      expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
-    });
+    await waitForWorkspaceData();
 
     fireEvent.click(screen.getByRole("button", { name: "打开工具菜单" }));
     const fileInput = await screen.findByLabelText("上传文件");
@@ -616,12 +668,34 @@ describe("App workspace shell", () => {
     expect(screen.queryByText("GPT-5.4 / openai")).not.toBeInTheDocument();
   });
 
+  it("deletes a conversation from the sidebar", async () => {
+    vi.mocked(api.fetchHistoryTasks).mockResolvedValue([
+      {
+        ...historyItems[0],
+        conversation_id: "conversation-delete-1",
+        conversation_turn_count: 2,
+      },
+    ]);
+
+    render(<App />);
+
+    expect(await screen.findByText("Implement login flow")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: /删除对话 Implement login flow/ }),
+    );
+
+    await waitFor(() => {
+      expect(api.deleteConversationHistory).toHaveBeenCalledWith(
+        "conversation-delete-1",
+      );
+    });
+    expect(screen.queryByText("Implement login flow")).not.toBeInTheDocument();
+  });
+
   it("switches into model control and rule template views", async () => {
     render(<App />);
 
-    await waitFor(() => {
-      expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
-    });
+    await waitForWorkspaceData();
 
     fireEvent.click(screen.getByRole("button", { name: "模型 控制" }));
     expect(await screen.findByText("模型控制中心")).toBeInTheDocument();
@@ -636,9 +710,7 @@ describe("App workspace shell", () => {
   it("edits provider controls and tests a provider connection", async () => {
     render(<App />);
 
-    await waitFor(() => {
-      expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
-    });
+    await waitForWorkspaceData();
 
     fireEvent.click(screen.getByRole("button", { name: "模型 控制" }));
     expect(await screen.findByText("模型服务商/API 管理")).toBeInTheDocument();
@@ -687,9 +759,7 @@ describe("App workspace shell", () => {
   it("renders GitHub and approval panels and can approve a pending task", async () => {
     render(<App />);
 
-    await waitFor(() => {
-      expect(api.fetchTaskHistoryDetail).toHaveBeenCalledWith("task-1");
-    });
+    await openFirstHistoryConversation();
 
     fireEvent.click(screen.getByRole("button", { name: "GitHub" }));
     expect(await screen.findByText("GitHub 上下文")).toBeInTheDocument();

@@ -259,6 +259,7 @@ export type TaskResult = {
       github_context?: GitHubContextSummary | null;
       academic_context?: AcademicContextSummary | null;
       approval?: ApprovalRecord | null;
+      skills?: string[];
       [key: string]: unknown;
     };
   };

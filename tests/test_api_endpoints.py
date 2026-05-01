@@ -292,6 +292,31 @@ def test_tasks_endpoint_persists_conversation_context_to_history(isolated_histor
     )
 
 
+def test_tasks_endpoint_persists_requested_skills_to_history(isolated_history_storage):
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/tasks",
+        json={
+            "prompt": "Improve the UI",
+            "skills": ["frontend-design", "gsd-do", "frontend-design"],
+        },
+    )
+
+    body = response.json()
+    task_id = body["data"]["metadata"]["task_id"]
+
+    assert response.status_code == 200
+    assert body["data"]["metadata"]["skills"] == ["frontend-design", "gsd-do"]
+
+    history_response = client.get(f"/api/history/tasks/{task_id}")
+    assert history_response.status_code == 200
+    assert history_response.json()["metadata"]["skills"] == [
+        "frontend-design",
+        "gsd-do",
+    ]
+
+
 def test_history_endpoint_groups_conversation_task_turns(isolated_history_storage):
     client = TestClient(create_app())
 
@@ -344,6 +369,49 @@ def test_history_endpoint_groups_conversation_task_turns(isolated_history_storag
     assert conversation_body[1]["metadata"]["conversation_id"] == (
         "conversation-history-1"
     )
+
+
+def test_history_endpoint_deletes_conversation_turns(isolated_history_storage):
+    client = TestClient(create_app())
+
+    first_response = client.post(
+        "/api/tasks",
+        json={
+            "prompt": "First turn",
+            "conversation_id": "conversation-delete-1",
+        },
+    )
+    second_response = client.post(
+        "/api/tasks",
+        json={
+            "prompt": "Second turn",
+            "conversation_id": "conversation-delete-1",
+        },
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+
+    delete_response = client.delete(
+        "/api/history/conversations/conversation-delete-1"
+    )
+    assert delete_response.status_code == 204
+
+    conversation_response = client.get(
+        "/api/history/conversations/conversation-delete-1/tasks"
+    )
+    assert conversation_response.status_code == 404
+
+
+def test_history_endpoint_deletes_single_task_without_conversation(isolated_history_storage):
+    client = TestClient(create_app())
+
+    response = client.post("/api/tasks", json={"prompt": "Standalone task"})
+    task_id = response.json()["data"]["metadata"]["task_id"]
+
+    delete_response = client.delete(f"/api/history/tasks/{task_id}")
+    assert delete_response.status_code == 204
+    assert client.get(f"/api/history/tasks/{task_id}").status_code == 404
 
 
 def test_tasks_endpoint_returns_structured_400_for_unknown_preset(isolated_history_storage):

@@ -321,6 +321,9 @@ class SerialOrchestrationService:
         )
         if conversation_lines:
             lines.extend(["Conversation so far:", *conversation_lines])
+        skill_lines = self._format_skills(payload.skills)
+        if skill_lines:
+            lines.extend(["Requested skills:", *skill_lines])
         lines.extend(
             [
                 f"User request: {payload.prompt}",
@@ -420,6 +423,19 @@ class SerialOrchestrationService:
             ]
         )
         return "\n".join(lines)
+
+    @staticmethod
+    def _format_skills(skills: list[str]) -> list[str]:
+        """Render user-selected skills as runtime-readable hints."""
+        rendered: list[str] = []
+        seen: set[str] = set()
+        for skill in skills:
+            value = str(skill).strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            rendered.append(f"- {value}")
+        return rendered
 
     @staticmethod
     def _strategy_for_preset(preset_mode: str) -> str:
