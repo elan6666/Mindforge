@@ -905,7 +905,7 @@ export function App() {
     const activeApproval = activeTaskDetail?.approval;
 
     return (
-      <div className="workspace-body">
+      <div className="workspace-body view-enter">
         <section className="chat-column">
           <div className="panel panel-intro">
             <div className="panel-title-row">
@@ -1070,7 +1070,7 @@ export function App() {
             </label>
             <div className="action-row">
               <button type="button" className="primary-button" onClick={handleSubmit} disabled={isSubmitting}>
-                {isSubmitting ? "提交中..." : "提交任务"}
+                {isSubmitting ? <><span className="spinner" />提交中...</> : "提交任务"}
               </button>
               <div className="subtle">
                 接口：/api/tasks, /api/history/tasks, /api/approvals/pending
@@ -1457,7 +1457,7 @@ export function App() {
                   <div key={provider.provider_id} className="settings-card provider-card">
                     <div className="stage-head">
                       <strong>{provider.display_name}</strong>
-                      <span className={`pill ${provider.enabled ? "accent" : "muted"}`}>
+                      <span className={`pill ${provider.enabled ? "accent" : "muted"} ${testingProviderId === provider.provider_id ? "pulse" : ""}`}>
                         {provider.enabled ? "已启用" : "已禁用"}
                       </span>
                     </div>
@@ -1580,7 +1580,7 @@ export function App() {
 
   function renderModelControlV2() {
     return (
-      <div className="settings-shell">
+      <div className="settings-shell view-enter">
         {settingsMessage && <div className="message success">{settingsMessage}</div>}
         {settingsError && <div className="message error">{settingsError}</div>}
 
@@ -1739,7 +1739,7 @@ export function App() {
                   <div key={provider.provider_id} className="settings-card provider-card">
                     <div className="stage-head">
                       <strong>{provider.display_name}</strong>
-                      <span className={`pill ${provider.enabled ? "accent" : "muted"}`}>
+                      <span className={`pill ${provider.enabled ? "accent" : "muted"} ${testingProviderId === provider.provider_id ? "pulse" : ""}`}>
                         {provider.enabled ? "已启用" : "已禁用"}
                       </span>
                     </div>
@@ -2125,7 +2125,7 @@ export function App() {
 
   function renderRuleTemplates() {
     return (
-      <div className="settings-shell template-shell">
+      <div className="settings-shell template-shell view-enter">
         <div className="panel template-list-panel">
           <div className="panel-title-row">
             <h2>规则模板</h2>
