@@ -116,6 +116,31 @@ def test_submit_includes_conversation_history_metadata_and_prompt_context(tmp_pa
     assert "What are the remaining risks?" in response.data.output
 
 
+def test_submit_omits_mock_trace_from_conversation_prompt_context(tmp_path):
+    service = make_service(tmp_path, openhands_mode="mock")
+
+    response = service.submit(
+        TaskRequest(
+            prompt="Continue the task",
+            conversation_id="conversation-1",
+            conversation_history=[
+                {
+                    "role": "assistant",
+                    "content": (
+                        "[mock-openhands]\n"
+                        "received prompt: internal debug prompt\n"
+                        "OpenHands adapter executed through the configured boundary."
+                    ),
+                }
+            ],
+        )
+    )
+
+    assert response.status == "completed"
+    assert "内部调试回显已省略" in response.data.output
+    assert "received prompt: internal debug prompt" not in response.data.output
+
+
 def test_submit_includes_requested_skills_metadata_and_prompt_context(tmp_path):
     service = make_service(tmp_path, openhands_mode="mock")
 
@@ -145,6 +170,41 @@ def test_lightweight_greeting_does_not_trigger_code_orchestration(tmp_path):
     assert response.data.metadata["execution_mode"] == "plain-chat"
     assert "orchestration" not in response.data.metadata
     assert "你好" in response.data.output
+
+
+def test_lightweight_date_question_does_not_expose_mock_adapter(tmp_path):
+    service = make_service(tmp_path, openhands_mode="mock")
+
+    response = service.submit(
+        TaskRequest(
+            prompt="今天几号",
+            conversation_history=[
+                {"role": "user", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "content": "你好！我是 Mindforge。",
+                },
+            ],
+        )
+    )
+
+    assert response.status == "completed"
+    assert response.data.provider == "mindforge-intake"
+    assert response.data.metadata["lightweight_intent"] == "date"
+    assert "今天是" in response.data.output
+    assert "[mock-openhands]" not in response.data.output
+
+
+def test_lightweight_capability_question_does_not_expose_mock_adapter(tmp_path):
+    service = make_service(tmp_path, openhands_mode="mock")
+
+    response = service.submit(TaskRequest(prompt="你能做什么"))
+
+    assert response.status == "completed"
+    assert response.data.provider == "mindforge-intake"
+    assert response.data.metadata["lightweight_intent"] == "capability"
+    assert "代码工程任务" in response.data.output
+    assert "[mock-openhands]" not in response.data.output
 
 
 def test_submit_unknown_preset_returns_failed_response(tmp_path):

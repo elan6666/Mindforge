@@ -210,6 +210,35 @@ def test_tasks_endpoint_returns_mock_openhands_response(isolated_history_storage
     assert body["data"]["metadata"]["task_model_selection"]["model_id"] == "gpt-5.4"
 
 
+def test_tasks_endpoint_handles_lightweight_chat_without_mock_trace(
+    isolated_history_storage,
+):
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/tasks",
+        json={
+            "prompt": "你能做什么",
+            "conversation_id": "conversation-chat-1",
+            "conversation_history": [
+                {"role": "user", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "content": "你好！我是 Mindforge。",
+                },
+            ],
+        },
+    )
+
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["data"]["provider"] == "mindforge-intake"
+    assert body["data"]["metadata"]["lightweight_intent"] == "capability"
+    assert "代码工程任务" in body["data"]["output"]
+    assert "[mock-openhands]" not in body["data"]["output"]
+
+
 def test_tasks_endpoint_persists_composer_metadata_to_history(isolated_history_storage):
     client = TestClient(create_app())
 

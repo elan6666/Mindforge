@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from functools import lru_cache
 from uuid import uuid4
 
@@ -62,6 +63,42 @@ LIGHTWEIGHT_CHAT_PROMPTS = {
     "哈喽",
     "hello there",
 }
+LIGHTWEIGHT_DATE_PROMPTS = {
+    "date",
+    "today",
+    "what date is it",
+    "what is today's date",
+    "what is the date today",
+    "今天几号",
+    "今天是几号",
+    "今天什么日期",
+    "今天是什么日期",
+    "今天日期",
+    "现在几号",
+    "现在日期",
+    "今天星期几",
+}
+LIGHTWEIGHT_CAPABILITY_PROMPTS = {
+    "help",
+    "帮助",
+    "功能",
+    "你能做什么",
+    "你可以做什么",
+    "你会做什么",
+    "你能干什么",
+    "能做什么",
+    "可以做什么",
+    "what can you do",
+}
+WEEKDAY_LABELS = (
+    "星期一",
+    "星期二",
+    "星期三",
+    "星期四",
+    "星期五",
+    "星期六",
+    "星期日",
+)
 
 
 @dataclass(slots=True)
@@ -540,17 +577,19 @@ class TaskService:
 
     def _build_plain_chat_response(self, prepared: PreparedTaskExecution) -> TaskResponse:
         """Answer lightweight chat without invoking a role-based engineering flow."""
+        intent = self._classify_lightweight_chat_intent(prepared.execution_payload.prompt)
         return TaskResponse(
             status="completed",
             message="Lightweight chat handled.",
             data=TaskResponseData(
-                output=(
-                    "你好！我是 Mindforge。你可以直接问我问题，或者点击左下角 + "
-                    "选择预设、模型、Skills、仓库、文件等上下文后再发起任务。"
+                output=self._build_lightweight_chat_output(
+                    prepared.execution_payload.prompt,
+                    intent,
                 ),
                 provider="mindforge-intake",
                 metadata={
                     "execution_mode": "plain-chat",
+                    "lightweight_intent": intent,
                     "resolved_preset_mode": prepared.preset.preset_mode,
                 },
             ),
@@ -692,6 +731,24 @@ class TaskService:
         )
 
     @staticmethod
+    def _build_lightweight_chat_output(prompt: str, intent: str) -> str:
+        """Return deterministic local answers for basic chat control turns."""
+        if intent == "date":
+            now = datetime.now().astimezone()
+            weekday = WEEKDAY_LABELS[now.weekday()]
+            return f"今天是 {now.year}年{now.month}月{now.day}日，{weekday}。"
+        if intent == "capability":
+            return (
+                "我可以帮你做三类事：普通问答和任务澄清；代码工程任务，比如读仓库、规划、"
+                "改代码、跑测试、整理结果；论文修改任务，比如按期刊标准分析、润色、模拟审稿人反馈。"
+                "如果要启动多 Agent，请点击左下角 + 配置预设、模型、Skills、仓库或文件后再发送。"
+            )
+        return (
+            "你好！我是 Mindforge。你可以直接问我问题，或者点击左下角 + "
+            "选择预设、模型、Skills、仓库、文件等上下文后再发起任务。"
+        )
+
+    @staticmethod
     def _augment_prompt_with_skills(prompt: str, skills: list[str]) -> str:
         """Append requested skill hints for runtimes that support skill loading."""
         normalized = TaskService._normalize_skills(skills)
@@ -721,16 +778,49 @@ class TaskService:
 
     @staticmethod
     def _should_handle_as_plain_chat(payload: TaskRequest) -> bool:
-        """Avoid launching multi-agent orchestration for a bare greeting."""
-        prompt = payload.prompt.strip().lower()
-        prompt = prompt.strip(" \t\r\n!?！。.,，~～")
-        if prompt not in LIGHTWEIGHT_CHAT_PROMPTS:
+        """Avoid launching execution flows for bare conversational control turns."""
+        if TaskService._has_execution_context(payload):
             return False
-        return not any(
+        return TaskService._classify_lightweight_chat_intent(payload.prompt) != "unknown"
+
+    @staticmethod
+    def _classify_lightweight_chat_intent(prompt: str) -> str:
+        """Classify short local chat requests that should not reach the adapter."""
+        normalized = TaskService._normalize_lightweight_prompt(prompt)
+        if normalized in LIGHTWEIGHT_CHAT_PROMPTS:
+            return "greeting"
+        if normalized in LIGHTWEIGHT_DATE_PROMPTS:
+            return "date"
+        if normalized in LIGHTWEIGHT_CAPABILITY_PROMPTS:
+            return "capability"
+        if any(keyword in normalized for keyword in ("今天几号", "今天是几号", "今天星期几")):
+            return "date"
+        if any(keyword in normalized for keyword in ("能做什么", "可以做什么", "你会做什么")):
+            return "capability"
+        return "unknown"
+
+    @staticmethod
+    def _normalize_lightweight_prompt(prompt: str) -> str:
+        """Normalize punctuation and whitespace for simple chat intent matching."""
+        normalized = prompt.strip().lower()
+        normalized = normalized.strip(" \t\r\n!?！。.,，~～？?")
+        return " ".join(normalized.split())
+
+    @staticmethod
+    def _has_execution_context(payload: TaskRequest) -> bool:
+        """Return true when the user supplied context that should trigger execution."""
+        top_level_tool_requested = any(
+            getattr(payload, flag_name) is True for flag_name in TOOL_FLAG_NAMES
+        )
+        grouped_tool_requested = any(
+            getattr(payload.tool_flags, flag_name) is True for flag_name in TOOL_FLAG_NAMES
+        )
+        return any(
             [
                 payload.task_type,
                 payload.rule_template_id,
                 payload.repo_path,
+                payload.skills,
                 payload.github_repo,
                 payload.github_issue_number,
                 payload.github_pr_number,
@@ -738,6 +828,8 @@ class TaskService:
                 payload.journal_url,
                 payload.reference_paper_urls,
                 payload.attachments,
+                top_level_tool_requested,
+                grouped_tool_requested,
             ]
         )
 
@@ -750,6 +842,7 @@ class TaskService:
             content = str(getattr(message, "content", "")).strip()
             if not content:
                 continue
+            content = TaskService._sanitize_history_content(role, content)
             label = {
                 "assistant": "Assistant",
                 "system": "System",
@@ -759,6 +852,13 @@ class TaskService:
                 content = content[:3997] + "..."
             rendered.append(f"{label}: {content}")
         return rendered
+
+    @staticmethod
+    def _sanitize_history_content(role: str, content: str) -> str:
+        """Keep internal mock adapter traces out of future model prompts."""
+        if role == "assistant" and content.lstrip().startswith("[mock-openhands]"):
+            return "前一轮任务已由本地 mock 执行器完成，内部调试回显已省略。"
+        return content
 
 
 @lru_cache(maxsize=1)
