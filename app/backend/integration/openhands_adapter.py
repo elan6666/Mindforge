@@ -49,9 +49,27 @@ class OpenHandsAdapter:
             )
         if mode in {"model-api", "model_api"}:
             return self._run_model_api(payload)
-        if mode == "http" and self.settings.openhands_base_url:
-            return self._run_http(payload)
-        return self._run_mock(payload)
+        if mode == "http":
+            if self.settings.openhands_base_url:
+                return self._run_http(payload)
+            return AdapterResult(
+                status="failed",
+                output="OpenHands HTTP adapter requires OPENHANDS_BASE_URL.",
+                provider="openhands-http",
+                metadata={"mode": mode},
+                error_message="OPENHANDS_BASE_URL is required when OPENHANDS_MODE=http.",
+            )
+        if mode == "mock":
+            return self._run_mock(payload)
+        return AdapterResult(
+            status="failed",
+            output="Unsupported OpenHands adapter mode.",
+            provider="openhands-adapter",
+            metadata={"mode": mode},
+            error_message=(
+                "OPENHANDS_MODE must be one of model-api, http, mock, or disabled."
+            ),
+        )
 
     def _run_http(self, payload: dict[str, Any]) -> AdapterResult:
         """Forward task payload to an HTTP endpoint when configured.
@@ -157,6 +175,11 @@ class OpenHandsAdapter:
             provider.metadata.get("chat_completions_path", "/chat/completions")
         )
         endpoint = provider.api_base_url.rstrip("/") + endpoint_path
+        tool_flags = self._extract_tool_flags(payload)
+        system_prompt = self._build_system_prompt(tool_flags)
+        max_tokens = self.settings.model_api_max_tokens
+        if tool_flags.get("deep_analysis") is True:
+            max_tokens = min(max_tokens * 2, 4096)
         try:
             response = requests.post(
                 endpoint,
@@ -169,15 +192,12 @@ class OpenHandsAdapter:
                     "messages": [
                         {
                             "role": "system",
-                            "content": (
-                                "You are a Mindforge execution agent. "
-                                "Return concise, structured, task-specific output."
-                            ),
+                            "content": system_prompt,
                         },
                         {"role": "user", "content": prompt},
                     ],
                     "temperature": 0.2,
-                    "max_tokens": self.settings.model_api_max_tokens,
+                    "max_tokens": max_tokens,
                 },
                 timeout=self.settings.model_api_timeout_seconds,
             )
@@ -199,6 +219,8 @@ class OpenHandsAdapter:
                     "endpoint": endpoint,
                     "upstream_status": response.status_code,
                     "usage": body.get("usage"),
+                    "tool_flags_applied": tool_flags,
+                    "max_tokens": max_tokens,
                 },
             )
         except (KeyError, IndexError, ValueError, requests.RequestException) as exc:
@@ -214,6 +236,46 @@ class OpenHandsAdapter:
                 },
                 error_message=str(exc),
             )
+
+    @staticmethod
+    def _extract_tool_flags(payload: dict[str, Any]) -> dict[str, bool]:
+        """Extract capability flags from normalized task metadata."""
+        metadata = payload.get("metadata")
+        if not isinstance(metadata, dict):
+            return {}
+        raw_flags = metadata.get("tool_flags")
+        if not isinstance(raw_flags, dict):
+            return {}
+        return {
+            key: bool(raw_flags.get(key))
+            for key in ("web_search", "deep_analysis", "code_execution", "canvas")
+            if raw_flags.get(key) is not None
+        }
+
+    @staticmethod
+    def _build_system_prompt(tool_flags: dict[str, bool]) -> str:
+        """Build the model-system prompt from enabled Mindforge capabilities."""
+        lines = [
+            "You are a Mindforge execution agent.",
+            "Return concise, structured, task-specific output.",
+        ]
+        if tool_flags.get("deep_analysis"):
+            lines.append(
+                "Deep analysis mode is enabled: reason through constraints, risks, alternatives, and validation steps before final recommendations."
+            )
+        if tool_flags.get("web_search"):
+            lines.append(
+                "Web search context may be included in the user message; cite or clearly attribute that context when using it. If search returns no_results, do not refuse or ask for clarification when the user request can be answered from runtime context or general reasoning."
+            )
+        if tool_flags.get("code_execution"):
+            lines.append(
+                "Code execution results may be included in the user message; use them as observed evidence, not guesses."
+            )
+        if tool_flags.get("canvas"):
+            lines.append(
+                "Canvas mode is enabled: format the answer as an editable artifact with clear headings and reusable structure."
+            )
+        return " ".join(lines)
 
     def _run_mock(self, payload: dict[str, Any]) -> AdapterResult:
         """Provide a deterministic local demo result for Phase 1."""

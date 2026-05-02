@@ -53,6 +53,46 @@ class Settings(BaseSettings):
         default=str(Path("app") / "data" / "mindforge.db"),
         description="SQLite database path for task history and approvals.",
     )
+    file_storage_path: str = Field(
+        default=str(Path("app") / "data" / "files"),
+        description="Local storage path for uploaded files and parsed chunks.",
+    )
+    artifact_storage_path: str = Field(
+        default=str(Path("app") / "data" / "artifacts"),
+        description="Local storage path for generated MD/PDF/DOCX/TEX artifacts.",
+    )
+    skill_roots: list[str] = Field(
+        default_factory=lambda: [
+            str(Path.home() / ".codex" / "skills"),
+            str(Path.home() / ".agents" / "skills"),
+            str(Path("skills")),
+        ],
+        description="Directories scanned for local SKILL.md files.",
+    )
+    mcp_registry_path: str = Field(
+        default=str(Path("app") / "data" / "mcp_servers.json"),
+        description="Local MCP server registry path.",
+    )
+    skill_settings_path: str = Field(
+        default=str(Path("app") / "data" / "skill_settings.json"),
+        description="Local Skill enablement and trust-level settings path.",
+    )
+    project_spaces_path: str = Field(
+        default=str(Path("app") / "data" / "project_spaces.json"),
+        description="Local project spaces registry path.",
+    )
+    code_execution_requires_approval: bool = Field(
+        default=True,
+        description="Require an approved task before executing user-provided Python code.",
+    )
+    upload_max_bytes: int = Field(
+        default=20 * 1024 * 1024,
+        description="Maximum uploaded file size accepted by the local file parser.",
+    )
+    artifact_max_content_chars: int = Field(
+        default=300_000,
+        description="Maximum source text length accepted by artifact export.",
+    )
 
 
 @lru_cache(maxsize=1)

@@ -229,6 +229,116 @@ export type AcademicContextSummary = {
   warnings: string[];
 };
 
+export type UploadedFileSummary = {
+  file_id: string;
+  name: string;
+  mime_type?: string | null;
+  size_bytes: number;
+  sha256: string;
+  status: string;
+  parser: string;
+  text_excerpt: string;
+  char_count: number;
+  chunk_count: number;
+  error_message?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type SkillSummary = {
+  skill_id: string;
+  name: string;
+  description: string;
+  path: string;
+  source_root: string;
+  enabled: boolean;
+  trust_level: string;
+  notes: string;
+};
+
+export type SkillSettingsUpdate = {
+  enabled?: boolean;
+  trust_level?: string | null;
+  notes?: string | null;
+};
+
+export type MCPServerSummary = {
+  server_id: string;
+  display_name: string;
+  transport: "http-jsonrpc" | "stdio";
+  endpoint_url: string;
+  command?: string | null;
+  args?: string[];
+  env?: Record<string, string>;
+  working_directory?: string | null;
+  enabled: boolean;
+  headers: Record<string, string>;
+  headers_configured?: boolean;
+  env_configured?: boolean;
+  allowed_tools?: string[];
+  blocked_tools?: string[];
+  tool_call_requires_approval?: boolean;
+  notes: string;
+  status: string;
+  tool_count?: number | null;
+};
+
+export type MCPServerUpsert = {
+  server_id: string;
+  display_name: string;
+  transport: "http-jsonrpc" | "stdio";
+  endpoint_url: string;
+  command?: string | null;
+  args?: string[];
+  env?: Record<string, string>;
+  working_directory?: string | null;
+  enabled: boolean;
+  headers: Record<string, string>;
+  allowed_tools?: string[];
+  blocked_tools?: string[];
+  tool_call_requires_approval?: boolean;
+  notes: string;
+};
+
+export type MCPToolSummary = {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+};
+
+export type MCPToolListResult = {
+  server_id: string;
+  status: string;
+  tools: MCPToolSummary[];
+  error_message?: string | null;
+};
+
+export type MCPToolAuditRecord = {
+  audit_id: string;
+  server_id: string;
+  tool_name: string;
+  status: string;
+  approved: boolean;
+  blocked_reason?: string | null;
+  arguments_preview: string;
+  error_message?: string | null;
+  duration_ms?: number | null;
+  created_at: string;
+};
+
+export type ArtifactFormat = "md" | "pdf" | "docx" | "tex";
+
+export type ArtifactSummary = {
+  artifact_id: string;
+  title: string;
+  format: ArtifactFormat;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  created_at: string;
+  source_task_id?: string | null;
+  download_url: string;
+};
+
 export type TaskResult = {
   status: string;
   message: string;
@@ -264,6 +374,48 @@ export type TaskResult = {
     };
   };
 };
+
+export type CanvasArtifact = {
+  artifact_id: string;
+  kind: string;
+  title: string;
+  source?: string;
+  editable?: boolean;
+  content: unknown;
+  version?: number;
+  versions?: Array<{
+    version: number;
+    title?: string;
+    content: unknown;
+    updated_at?: string;
+    source?: string;
+  }>;
+  updated_at?: string;
+};
+
+export type ProjectSpaceSummary = {
+  project_id: string;
+  display_name: string;
+  description: string;
+  instructions: string;
+  memory: string;
+  default_preset_mode?: string | null;
+  repo_path?: string | null;
+  github_repo?: string | null;
+  skill_ids: string[];
+  mcp_server_ids: string[];
+  file_ids: string[];
+  tags: string[];
+  enabled: boolean;
+  file_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectSpaceUpsert = Omit<
+  ProjectSpaceSummary,
+  "file_count" | "created_at" | "updated_at"
+>;
 
 export type TaskHistorySummary = {
   task_id: string;
@@ -307,6 +459,7 @@ export type TaskHistoryDetail = TaskHistorySummary & {
     github_context?: GitHubContextSummary | null;
     academic_context?: AcademicContextSummary | null;
     approval?: ApprovalRecord | null;
+    canvas_artifacts?: CanvasArtifact[];
     [key: string]: unknown;
   };
   stages: StageHistoryRecord[];

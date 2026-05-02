@@ -33,10 +33,22 @@ class ModelRoutingService:
         preset_mode: str,
         task_type: str | None,
         explicit_model: str | None = None,
+        prefer_user_default: bool = False,
     ) -> ModelSelection:
         """Resolve a model for a single-pass task."""
+        user_default = (
+            self._priority_fallback(
+                preset_mode=preset_mode,
+                task_type=task_type,
+                role=None,
+                custom_only=True,
+            )
+            if prefer_user_default
+            else None
+        )
         candidate_chain = [
             ("explicit-task-override", explicit_model),
+            ("user-default", user_default.model_id if user_default is not None else None),
             ("task-type-default", self.registry.catalog.routing.task_type_defaults.get(task_type or "")),
             ("preset-default", self.registry.catalog.routing.preset_defaults.get(preset_mode)),
             ("global-default", self.registry.catalog.routing.default_model_id),
@@ -56,11 +68,23 @@ class ModelRoutingService:
         role: str,
         explicit_model: str | None = None,
         preset_default_model: str | None = None,
+        prefer_user_default: bool = False,
     ) -> ModelSelection:
         """Resolve a model for one orchestration stage."""
         role_defaults = self.registry.catalog.routing.role_defaults.get(preset_mode, {})
+        user_default = (
+            self._priority_fallback(
+                preset_mode=preset_mode,
+                task_type=task_type,
+                role=role,
+                custom_only=True,
+            )
+            if prefer_user_default
+            else None
+        )
         candidate_chain = [
             ("explicit-role-override", explicit_model),
+            ("user-default", user_default.model_id if user_default is not None else None),
             ("routing-role-default", role_defaults.get(role)),
             ("preset-role-default", preset_default_model),
             ("task-type-default", self.registry.catalog.routing.task_type_defaults.get(task_type or "")),
@@ -110,11 +134,17 @@ class ModelRoutingService:
         preset_mode: str,
         task_type: str | None,
         role: str | None,
+        custom_only: bool = False,
     ) -> ModelDefinition | None:
         """Return the best enabled model ordered by priority."""
+        source_models = (
+            self.registry.iter_enabled_custom_models()
+            if custom_only
+            else self.registry.iter_enabled_models()
+        )
         candidates = [
             model
-            for model in self.registry.iter_enabled_models()
+            for model in source_models
             if self._model_supports_scope(
                 model,
                 preset_mode=preset_mode,

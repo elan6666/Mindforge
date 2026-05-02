@@ -5,10 +5,16 @@ import { App } from "./App";
 import * as api from "./lib/api";
 import type {
   ApprovalRecord,
+  ArtifactSummary,
+  MCPServerSummary,
+  MCPToolAuditRecord,
+  MCPToolListResult,
   ModelSummary,
   PresetSummary,
+  ProjectSpaceSummary,
   ProviderSummary,
   RuleTemplateSummary,
+  SkillSummary,
   TaskHistoryDetail,
   TaskHistorySummary,
   TaskResult,
@@ -16,28 +22,41 @@ import type {
 
 vi.mock("./lib/api", () => ({
   approveTask: vi.fn(),
+  createMcpServer: vi.fn(),
   createModelControl: vi.fn(),
+  createProjectSpace: vi.fn(),
   createProviderControl: vi.fn(),
   createRuleTemplate: vi.fn(),
   deleteConversationHistory: vi.fn(),
   deleteHistoryTask: vi.fn(),
+  deleteMcpServer: vi.fn(),
   deleteModelControl: vi.fn(),
+  deleteProjectSpace: vi.fn(),
   deleteProviderControl: vi.fn(),
   deleteRuleTemplate: vi.fn(),
   fetchConversationHistory: vi.fn(),
   fetchEditableModels: vi.fn(),
   fetchHistoryTasks: vi.fn(),
+  fetchMcpAudit: vi.fn(),
+  fetchMcpServers: vi.fn(),
+  fetchMcpTools: vi.fn(),
   fetchModels: vi.fn(),
   fetchPendingApprovals: vi.fn(),
   fetchPresets: vi.fn(),
+  fetchProjectSpaces: vi.fn(),
   fetchProviders: vi.fn(),
   fetchUserProviders: vi.fn(),
   fetchRuleTemplates: vi.fn(),
+  fetchSkills: vi.fn(),
   fetchTaskHistoryDetail: vi.fn(),
   getApiBaseUrl: vi.fn(() => "http://127.0.0.1:8000/api"),
   rejectTask: vi.fn(),
   submitTask: vi.fn(),
   testProviderConnection: vi.fn(),
+  updateSkillSettings: vi.fn(),
+  uploadFile: vi.fn(),
+  exportArtifact: vi.fn(),
+  updateCanvasArtifact: vi.fn(),
   updateModelControl: vi.fn(),
   updateProviderControl: vi.fn(),
   updateRuleTemplate: vi.fn(),
@@ -122,6 +141,102 @@ const ruleTemplates: RuleTemplateSummary[] = [
     notes: "默认模板",
   },
 ];
+
+const skills: SkillSummary[] = [
+  {
+    skill_id: "frontend-design",
+    name: "frontend-design",
+    description: "Polish frontend UI.",
+    path: "C:/Users/16523/.codex/skills/frontend-design/SKILL.md",
+    source_root: "C:/Users/16523/.codex/skills",
+    enabled: true,
+    trust_level: "local",
+    notes: "",
+  },
+];
+
+const mcpServers: MCPServerSummary[] = [
+  {
+    server_id: "filesystem",
+    display_name: "Filesystem",
+    transport: "http-jsonrpc",
+    endpoint_url: "http://127.0.0.1:8765/mcp",
+    command: null,
+    args: [],
+    env: {},
+    working_directory: null,
+    enabled: true,
+    headers: {},
+    headers_configured: false,
+    env_configured: false,
+    allowed_tools: ["read_file"],
+    blocked_tools: ["delete_file"],
+    tool_call_requires_approval: true,
+    notes: "Local file tools",
+    status: "configured",
+    tool_count: null,
+  },
+];
+
+const projectSpaces: ProjectSpaceSummary[] = [
+  {
+    project_id: "mindforge-dev",
+    display_name: "Mindforge Dev",
+    description: "Build Mindforge.",
+    instructions: "Use concise Chinese.",
+    memory: "MCP calls require approval.",
+    default_preset_mode: "code-engineering",
+    repo_path: "E:/CODE/agent助手",
+    github_repo: "elan6666/Mindforge",
+    skill_ids: ["frontend-design"],
+    mcp_server_ids: ["filesystem"],
+    file_ids: ["file-brief.md"],
+    tags: ["dev"],
+    enabled: true,
+    file_count: 1,
+    created_at: "2026-05-02T00:00:00+00:00",
+    updated_at: "2026-05-02T00:00:00+00:00",
+  },
+];
+
+const mcpToolResult: MCPToolListResult = {
+  server_id: "filesystem",
+  status: "ok",
+  tools: [
+    {
+      name: "read_file",
+      description: "Read a file",
+      input_schema: { type: "object" },
+    },
+  ],
+};
+
+const mcpAuditRecords: MCPToolAuditRecord[] = [
+  {
+    audit_id: "audit-1",
+    server_id: "filesystem",
+    tool_name: "read_file",
+    status: "approval_required",
+    approved: false,
+    blocked_reason: "tool_call_requires_approval",
+    arguments_preview: '{"path":"README.md"}',
+    error_message: null,
+    duration_ms: 2,
+    created_at: "2026-05-02T00:00:00+00:00",
+  },
+];
+
+const exportedArtifact: ArtifactSummary = {
+  artifact_id: "artifact-1",
+  title: "Mindforge output",
+  format: "md",
+  filename: "mindforge-output.md",
+  mime_type: "text/markdown; charset=utf-8",
+  size_bytes: 24,
+  created_at: "2026-05-01T00:00:00+00:00",
+  source_task_id: "task-1",
+  download_url: "/api/artifacts/artifact-1/download",
+};
 
 const approval: ApprovalRecord = {
   approval_id: "approval-1",
@@ -243,6 +358,54 @@ const historyDetail: TaskHistoryDetail = {
       warnings: [],
     },
     approval,
+    tool_flags: {
+      deep_analysis: true,
+      web_search: true,
+      code_execution: false,
+      canvas: true,
+    },
+    tool_context: {
+      deep_analysis: { status: "enabled" },
+      canvas: { status: "enabled" },
+    },
+    canvas_artifacts: [
+      {
+        artifact_id: "canvas-task-1",
+        kind: "markdown",
+        title: "Mindforge 输出画布",
+        editable: true,
+        content: "初始画布内容",
+        version: 1,
+        versions: [
+          {
+            version: 1,
+            title: "Mindforge 输出画布",
+            content: "初始画布内容",
+            updated_at: "2026-05-02T00:00:00+00:00",
+            source: "initial-output",
+          },
+        ],
+      },
+    ],
+    generated_artifacts: [exportedArtifact],
+    execution_report: {
+      runtime_boundary: {
+        adapter: "OpenHandsAdapter",
+        openhands_mode: "mock",
+        skills_runtime: "prompt-context",
+        mcp_runtime: "catalog/proxy",
+        code_execution: "approval-gated-python-snippet",
+      },
+      steps: [
+        {
+          id: "context",
+          label: "上下文装配",
+          status: "completed",
+          summary: "已合并任务上下文。",
+        },
+      ],
+      warnings: ["MCP 当前作为 catalog/proxy 能力接入。"],
+    },
   },
   stages: [
     {
@@ -287,12 +450,85 @@ function setupApiMocks() {
   vi.mocked(api.fetchModels).mockResolvedValue(models);
   vi.mocked(api.fetchEditableModels).mockResolvedValue(models);
   vi.mocked(api.fetchRuleTemplates).mockResolvedValue(ruleTemplates);
+  vi.mocked(api.fetchSkills).mockResolvedValue(skills);
+  vi.mocked(api.fetchProjectSpaces).mockResolvedValue(projectSpaces);
+  vi.mocked(api.fetchMcpServers).mockResolvedValue(mcpServers);
+  vi.mocked(api.fetchMcpAudit).mockResolvedValue(mcpAuditRecords);
+  vi.mocked(api.fetchMcpTools).mockResolvedValue(mcpToolResult);
   vi.mocked(api.fetchHistoryTasks).mockResolvedValue(historyItems);
   vi.mocked(api.fetchPendingApprovals).mockResolvedValue([approval]);
   vi.mocked(api.fetchTaskHistoryDetail).mockResolvedValue(historyDetail);
   vi.mocked(api.fetchConversationHistory).mockResolvedValue([historyDetail]);
   vi.mocked(api.deleteHistoryTask).mockResolvedValue(undefined);
   vi.mocked(api.deleteConversationHistory).mockResolvedValue(undefined);
+  vi.mocked(api.createMcpServer).mockImplementation(async (payload) => ({
+    ...payload,
+    status: "configured",
+    tool_count: null,
+  }));
+  vi.mocked(api.deleteMcpServer).mockResolvedValue(undefined);
+  vi.mocked(api.createProjectSpace).mockImplementation(async (payload) => ({
+    ...payload,
+    file_count: payload.file_ids.length,
+    created_at: "2026-05-02T00:00:00+00:00",
+    updated_at: "2026-05-02T00:00:00+00:00",
+  }));
+  vi.mocked(api.deleteProjectSpace).mockResolvedValue(undefined);
+  vi.mocked(api.updateSkillSettings).mockImplementation(async (skillId, payload) => ({
+    ...skills[0],
+    skill_id: skillId,
+    enabled: payload.enabled ?? skills[0].enabled,
+    trust_level: payload.trust_level || skills[0].trust_level,
+    notes: payload.notes || skills[0].notes,
+  }));
+  vi.mocked(api.exportArtifact).mockResolvedValue(exportedArtifact);
+  vi.mocked(api.uploadFile).mockImplementation(async (file) => ({
+    file_id: `file-${file.name}`,
+    name: file.name,
+    mime_type: file.type || "application/octet-stream",
+    size_bytes: file.size,
+    sha256: "test-sha256",
+    status: "parsed",
+    parser: "plain-text",
+    text_excerpt:
+      file.name === "brief.md" ? "structured upload text" : "hello from fixture",
+    char_count: file.size,
+    chunk_count: 1,
+    error_message: null,
+    metadata: {},
+  }));
+  vi.mocked(api.updateCanvasArtifact).mockImplementation(async (_taskId, _artifactId, payload) => ({
+    ...historyDetail,
+    metadata: {
+      ...historyDetail.metadata,
+      canvas_artifacts: [
+        {
+          artifact_id: "canvas-task-1",
+          kind: "markdown",
+          title: "Mindforge 输出画布",
+          editable: true,
+          content: payload.content,
+          version: 2,
+          versions: [
+            {
+              version: 1,
+              title: "Mindforge 输出画布",
+              content: "初始画布内容",
+              updated_at: "2026-05-02T00:00:00+00:00",
+              source: "initial-output",
+            },
+            {
+              version: 2,
+              title: "Mindforge 输出画布",
+              content: payload.content,
+              updated_at: "2026-05-02T00:10:00+00:00",
+              source: "manual-edit",
+            },
+          ],
+        },
+      ],
+    },
+  }));
   vi.mocked(api.approveTask).mockResolvedValue(approvalResult);
   vi.mocked(api.rejectTask).mockResolvedValue({
     ...approvalResult,
@@ -415,6 +651,30 @@ describe("App workspace shell", () => {
     expect(screen.getByText("期刊投稿指南 URL")).toBeInTheDocument();
     expect(screen.queryByText("仓库路径")).not.toBeInTheDocument();
     expect(screen.queryByText("GitHub 仓库")).not.toBeInTheDocument();
+  });
+
+  it("closes composer menus and task config when clicking outside", async () => {
+    render(<App />);
+
+    await waitForWorkspaceData();
+
+    fireEvent.click(screen.getByRole("button", { name: "打开工具菜单" }));
+    expect(await screen.findByRole("button", { name: /任务配置/ })).toBeInTheDocument();
+
+    fireEvent.pointerDown(document.body);
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /任务配置/ })).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "打开工具菜单" }));
+    fireEvent.click(await screen.findByRole("button", { name: /任务配置/ }));
+    expect(await screen.findByLabelText("预设模式")).toBeInTheDocument();
+
+    fireEvent.pointerDown(document.body);
+    await waitFor(() => {
+      expect(screen.queryByLabelText("预设模式")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: /任务配置/ })).not.toBeInTheDocument();
   });
 
   it("offers quick starts and sends with Enter", async () => {
@@ -630,14 +890,20 @@ describe("App workspace shell", () => {
           prompt: "读取附件并总结",
           attachments: [
             expect.objectContaining({
+              id: "file-brief.md",
+              file_id: "file-brief.md",
               name: "brief.md",
               mime_type: "text/markdown",
               size_bytes: file.size,
               text_excerpt: "structured upload text",
+              parsed_status: "parsed",
+              chunk_count: 1,
               metadata: expect.objectContaining({
                 source: "composer-upload",
                 truncated: false,
                 has_text_excerpt: true,
+                backend_file_id: "file-brief.md",
+                parser: "plain-text",
               }),
             }),
           ],
@@ -668,6 +934,22 @@ describe("App workspace shell", () => {
     expect(screen.queryByText("GPT-5.4 / openai")).not.toBeInTheDocument();
   });
 
+  it("guides first-time users to add a model before submitting", async () => {
+    vi.mocked(api.fetchModels).mockResolvedValue([]);
+    vi.mocked(api.fetchEditableModels).mockResolvedValue([]);
+
+    render(<App />);
+
+    expect(await screen.findByText("先接入一个模型")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("任务描述"), {
+      target: { value: "你好" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "先添加模型" }));
+
+    expect(api.submitTask).not.toHaveBeenCalled();
+    expect(await screen.findByText("模型控制中心")).toBeInTheDocument();
+  });
+
   it("deletes a conversation from the sidebar", async () => {
     vi.mocked(api.fetchHistoryTasks).mockResolvedValue([
       {
@@ -683,6 +965,10 @@ describe("App workspace shell", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /删除对话 Implement login flow/ }),
     );
+    expect(await screen.findByText(/再次点击/)).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: /删除对话 Implement login flow/ }),
+    );
 
     await waitFor(() => {
       expect(api.deleteConversationHistory).toHaveBeenCalledWith(
@@ -690,6 +976,147 @@ describe("App workspace shell", () => {
       );
     });
     expect(screen.queryByText("Implement login flow")).not.toBeInTheDocument();
+  });
+
+  it("edits and saves a canvas artifact", async () => {
+    render(<App />);
+
+    await openFirstHistoryConversation();
+
+    fireEvent.click(screen.getByRole("tab", { name: "画布" }));
+    const editor = await screen.findByLabelText("Mindforge 输出画布 内容");
+    fireEvent.change(editor, { target: { value: "更新后的画布内容" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存画布" }));
+
+    await waitFor(() => {
+      expect(api.updateCanvasArtifact).toHaveBeenCalledWith(
+        "task-1",
+        "canvas-task-1",
+        {
+          title: "Mindforge 输出画布",
+          content: "更新后的画布内容",
+        },
+      );
+    });
+  });
+
+  it("shows tool center, loads MCP tools, and exports output documents", async () => {
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(<App />);
+
+    await waitForWorkspaceData();
+    expect(await screen.findByLabelText("底部模型选择")).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: /工具/ })[0]);
+    expect(await screen.findByText("工具与 Skills 中心")).toBeInTheDocument();
+    expect(screen.getAllByText("frontend-design").length).toBeGreaterThan(0);
+    expect(screen.getByText("调用需审批")).toBeInTheDocument();
+    expect(screen.getByText("允许 1")).toBeInTheDocument();
+    expect(screen.getByText("禁用 1")).toBeInTheDocument();
+    expect(screen.getByText("MCP 调用审计")).toBeInTheDocument();
+    expect(screen.getByText("tool_call_requires_approval")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "读取工具目录" }));
+
+    await waitFor(() => {
+      expect(api.fetchMcpTools).toHaveBeenCalledWith("filesystem");
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText("read_file").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.change(screen.getByLabelText("Server ID"), {
+      target: { value: "browser" },
+    });
+    fireEvent.change(screen.getByLabelText("显示名称"), {
+      target: { value: "Browser MCP" },
+    });
+    fireEvent.change(screen.getByLabelText("Endpoint URL"), {
+      target: { value: "http://127.0.0.1:9000/mcp" },
+    });
+    fireEvent.change(screen.getByLabelText("允许工具"), {
+      target: { value: "search, summarize" },
+    });
+    fireEvent.change(screen.getByLabelText("禁用工具"), {
+      target: { value: "delete_file" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存 MCP Server" }));
+
+    await waitFor(() => {
+      expect(api.createMcpServer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          server_id: "browser",
+          display_name: "Browser MCP",
+          endpoint_url: "http://127.0.0.1:9000/mcp",
+          allowed_tools: ["search", "summarize"],
+          blocked_tools: ["delete_file"],
+          tool_call_requires_approval: true,
+        }),
+      );
+    });
+
+    await openFirstHistoryConversation();
+    expect(await screen.findByText("自动生成的文件")).toBeInTheDocument();
+    expect(screen.getByText("mindforge-output.md")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "导出 MD" }));
+
+    await waitFor(() => {
+      expect(api.exportArtifact).toHaveBeenCalledWith(
+        expect.objectContaining({
+          format: "md",
+          source_task_id: "task-1",
+        }),
+      );
+    });
+    expect(openSpy).toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
+  it("manages project spaces and sends selected project context with tasks", async () => {
+    render(<App />);
+
+    await waitForWorkspaceData();
+    fireEvent.click(screen.getByRole("button", { name: "项目 空间" }));
+    expect(await screen.findByText("项目空间")).toBeInTheDocument();
+    expect(screen.getByText("Mindforge Dev")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Project ID"), {
+      target: { value: "paper-lab" },
+    });
+    fireEvent.change(screen.getByLabelText("项目名称"), {
+      target: { value: "Paper Lab" },
+    });
+    fireEvent.change(screen.getByLabelText("项目指令"), {
+      target: { value: "按期刊论文标准写作。" },
+    });
+    fireEvent.change(screen.getByLabelText("项目记忆"), {
+      target: { value: "偏好中文解释。" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存项目空间" }));
+
+    await waitFor(() => {
+      expect(api.createProjectSpace).toHaveBeenCalledWith(
+        expect.objectContaining({
+          project_id: "paper-lab",
+          display_name: "Paper Lab",
+          instructions: "按期刊论文标准写作。",
+          memory: "偏好中文解释。",
+        }),
+      );
+    });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "用于新任务" })[0]);
+    fireEvent.change(screen.getByLabelText("任务描述"), {
+      target: { value: "继续优化这个项目" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送任务" }));
+
+    await waitFor(() => {
+      expect(api.submitTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          project_id: "paper-lab",
+        }),
+      );
+    });
   });
 
   it("switches into model control and rule template views", async () => {
@@ -761,18 +1188,18 @@ describe("App workspace shell", () => {
 
     await openFirstHistoryConversation();
 
-    fireEvent.click(screen.getByRole("button", { name: "GitHub" }));
+    fireEvent.click(screen.getByRole("tab", { name: "GitHub" }));
     expect(await screen.findByText("GitHub 上下文")).toBeInTheDocument();
     expect(screen.getByText("openai/openai-python")).toBeInTheDocument();
     expect(screen.getByText("Issue #123")).toBeInTheDocument();
     expect(screen.getByText("PR #9")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "论文" }));
+    fireEvent.click(screen.getByRole("tab", { name: "论文" }));
     expect(await screen.findByText("论文上下文")).toBeInTheDocument();
     expect(screen.getByText("Example Journal")).toBeInTheDocument();
     expect(screen.getByText("参考论文 1")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "审批" }));
+    fireEvent.click(screen.getByRole("tab", { name: "审批" }));
     expect(await screen.findByText("写入操作前需要审批。")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "批准并继续" }));

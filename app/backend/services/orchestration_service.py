@@ -101,9 +101,12 @@ class SerialOrchestrationService:
         self,
         adapter: OpenHandsAdapter,
         model_router: ModelRoutingService,
+        *,
+        prefer_user_model_defaults: bool = False,
     ) -> None:
         self.adapter = adapter
         self.model_router = model_router
+        self.prefer_user_model_defaults = prefer_user_model_defaults
 
     def execute_code_engineering(
         self,
@@ -232,6 +235,7 @@ class SerialOrchestrationService:
             role=role,
             explicit_model=payload.role_model_overrides.get(role),
             preset_default_model=preset.default_models.get(role),
+            prefer_user_default=self.prefer_user_model_defaults,
         )
         return StageDefinition(
             order=order,
@@ -324,6 +328,25 @@ class SerialOrchestrationService:
         skill_lines = self._format_skills(payload.skills)
         if skill_lines:
             lines.extend(["Requested skills:", *skill_lines])
+        skill_context_lines = self._format_skill_context(
+            payload.metadata.get("skills_context"),
+        )
+        if skill_context_lines:
+            lines.extend(["Loaded local skill context:", *skill_context_lines])
+        runtime_context_lines = self._format_runtime_context(
+            payload.metadata.get("runtime_context"),
+        )
+        if runtime_context_lines:
+            lines.extend(["Current runtime context:", *runtime_context_lines])
+        tool_context_lines = self._format_tool_context(payload.metadata.get("tool_context"))
+        if tool_context_lines:
+            lines.extend(["Mindforge tool context:", *tool_context_lines])
+        mcp_context_lines = self._format_mcp_context(payload.metadata.get("mcp_context"))
+        if mcp_context_lines:
+            lines.extend(["MCP tool context:", *mcp_context_lines])
+        file_context_lines = self._format_file_context(payload.metadata.get("file_context"))
+        if file_context_lines:
+            lines.extend(["Uploaded file context:", *file_context_lines])
         lines.extend(
             [
                 f"User request: {payload.prompt}",
@@ -435,6 +458,155 @@ class SerialOrchestrationService:
                 continue
             seen.add(value)
             rendered.append(f"- {value}")
+        return rendered
+
+    @staticmethod
+    def _format_runtime_context(runtime_context: object) -> list[str]:
+        """Render current runtime facts for role-specific prompts."""
+        if not isinstance(runtime_context, dict) or not runtime_context:
+            return []
+        rendered: list[str] = []
+        current_date = runtime_context.get("current_date")
+        current_time = runtime_context.get("current_time")
+        weekday = runtime_context.get("weekday")
+        timezone = runtime_context.get("timezone")
+        utc_offset = runtime_context.get("utc_offset")
+        if current_date:
+            rendered.append(f"- current_date: {current_date}")
+        if weekday:
+            rendered.append(f"- weekday: {weekday}")
+        if current_time:
+            rendered.append(f"- current_time: {current_time}")
+        if timezone or utc_offset:
+            rendered.append(f"- timezone: {timezone or 'local'} {utc_offset or ''}".rstrip())
+        rendered.append(
+            "- If the user asks about today, now, or current date/time, answer directly from these facts."
+        )
+        rendered.append(
+            "- Do not treat missing web search results as missing user intent for date/time questions."
+        )
+        return rendered
+
+    @staticmethod
+    def _format_skill_context(skills_context: object) -> list[str]:
+        """Render selected SKILL.md excerpts for role-specific prompts."""
+        if not isinstance(skills_context, dict) or not skills_context:
+            return []
+        rendered: list[str] = [
+            f"- status: {skills_context.get('status')}",
+            f"- runtime: {skills_context.get('runtime') or 'prompt-context'}",
+        ]
+        skills = skills_context.get("skills")
+        if isinstance(skills, list):
+            for skill in skills[:6]:
+                if not isinstance(skill, dict):
+                    continue
+                rendered.append(
+                    f"- {skill.get('skill_id')}: {skill.get('name')} | "
+                    f"{skill.get('description') or ''}"
+                )
+                excerpt = str(skill.get("content_excerpt") or "").strip()
+                if excerpt:
+                    rendered.append("```skill")
+                    rendered.append(excerpt[:1800])
+                    rendered.append("```")
+        missing = skills_context.get("missing")
+        if isinstance(missing, list) and missing:
+            rendered.append("- missing: " + ", ".join(str(item) for item in missing))
+        return rendered
+
+    @staticmethod
+    def _format_tool_context(tool_context: object) -> list[str]:
+        """Render tool execution context for role-specific stage prompts."""
+        if not isinstance(tool_context, dict) or not tool_context:
+            return []
+        rendered: list[str] = []
+        if "deep_analysis" in tool_context:
+            rendered.append(
+                "- Deep analysis is enabled: consider tradeoffs, risks, and edge cases."
+            )
+        web_context = tool_context.get("web_search")
+        if isinstance(web_context, dict):
+            rendered.append(f"- Web search status: {web_context.get('status')}")
+            results = web_context.get("results")
+            if isinstance(results, list) and results:
+                for index, result in enumerate(results[:5], start=1):
+                    if isinstance(result, dict):
+                        rendered.append(
+                            f"  {index}. {result.get('title') or 'Untitled'} | "
+                            f"{result.get('url') or '-'} | {result.get('snippet') or ''}"
+                        )
+            elif web_context.get("status") == "no_results":
+                rendered.append(
+                    "  no web results were found; continue from runtime context or general reasoning when sufficient."
+                )
+        code_context = tool_context.get("code_execution")
+        if isinstance(code_context, dict):
+            rendered.append(
+                "- Code execution status: "
+                f"{code_context.get('status')} ({code_context.get('language')})"
+            )
+            if code_context.get("stdout"):
+                rendered.append(f"  stdout: {code_context.get('stdout')}")
+            if code_context.get("stderr"):
+                rendered.append(f"  stderr: {code_context.get('stderr')}")
+        if "canvas" in tool_context:
+            rendered.append(
+                "- Canvas is enabled: make the final answer suitable for editable artifact use."
+            )
+        return rendered
+
+    @staticmethod
+    def _format_file_context(file_context: object) -> list[str]:
+        """Render retrieved uploaded-file chunks for role-specific prompts."""
+        if not isinstance(file_context, dict) or not file_context:
+            return []
+        rendered = [f"- retrieval status: {file_context.get('status')}"]
+        files = file_context.get("files")
+        if isinstance(files, list) and files:
+            rendered.append("- files:")
+            for file in files[:8]:
+                if isinstance(file, dict):
+                    rendered.append(
+                        "  - "
+                        f"{file.get('name')} | file_id={file.get('file_id')} | "
+                        f"status={file.get('status')} | parser={file.get('parser')}"
+                    )
+        chunks = file_context.get("chunks")
+        if isinstance(chunks, list) and chunks:
+            rendered.append("- retrieved chunks:")
+            for index, chunk in enumerate(chunks[:8], start=1):
+                if isinstance(chunk, dict):
+                    rendered.append(
+                        f"  [{index}] file_id={chunk.get('file_id')} "
+                        f"chunk={chunk.get('order')} score={chunk.get('score')}"
+                    )
+                    rendered.append(f"  {chunk.get('text') or ''}")
+        return rendered
+
+    @staticmethod
+    def _format_mcp_context(mcp_context: object) -> list[str]:
+        """Render selected MCP tool catalogs for role-specific prompts."""
+        if not isinstance(mcp_context, dict) or not mcp_context:
+            return []
+        rendered = [f"- status: {mcp_context.get('status')}"]
+        servers = mcp_context.get("servers")
+        if isinstance(servers, list):
+            for server in servers[:6]:
+                if not isinstance(server, dict):
+                    continue
+                rendered.append(
+                    f"- server {server.get('server_id')}: status={server.get('status')}"
+                )
+                if server.get("error_message"):
+                    rendered.append(f"  error: {server.get('error_message')}")
+                tools = server.get("tools")
+                if isinstance(tools, list):
+                    for tool in tools[:12]:
+                        if isinstance(tool, dict):
+                            rendered.append(
+                                f"  - tool {tool.get('name')}: {tool.get('description') or ''}"
+                            )
         return rendered
 
     @staticmethod

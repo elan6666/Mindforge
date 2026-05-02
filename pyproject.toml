@@ -5,10 +5,16 @@ description = "Mindforge is an OpenHands-based multi-agent assistant backend ske
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "beautifulsoup4>=4.12.0,<5.0.0",
   "fastapi>=0.116.0,<1.0.0",
+  "playwright>=1.48.0,<2.0.0",
   "pydantic-settings>=2.10.0,<3.0.0",
+  "pypdf>=5.0.0,<7.0.0",
+  "python-docx>=1.1.0,<2.0.0",
+  "python-multipart>=0.0.9,<1.0.0",
   "pyyaml>=6.0.2,<7.0.0",
   "requests>=2.32.0,<3.0.0",
+  "reportlab>=4.0.0,<5.0.0",
   "uvicorn>=0.35.0,<1.0.0",
 ]
 
@@ -30,3 +36,6 @@ include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "e2e: browser smoke tests that require local frontend/backend servers",
+]

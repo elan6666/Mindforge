@@ -181,6 +181,98 @@ class HistoryService:
         ]
         return self.store.delete_task_runs(task_ids)
 
+    def update_canvas_artifact(
+        self,
+        task_id: str,
+        artifact_id: str,
+        *,
+        content: object,
+        title: str | None = None,
+    ) -> TaskHistoryDetail | None:
+        """Update one editable canvas artifact stored in task metadata."""
+        current = self.store.get_task_run(task_id)
+        if current is None:
+            return None
+        metadata = dict(current["metadata_json"])
+        artifacts = metadata.get("canvas_artifacts")
+        if not isinstance(artifacts, list):
+            raise ValueError(f"Task '{task_id}' has no canvas artifacts.")
+
+        timestamp = _utc_now()
+        updated = False
+        for artifact in artifacts:
+            if not isinstance(artifact, dict):
+                continue
+            if str(artifact.get("artifact_id")) != artifact_id:
+                continue
+            if artifact.get("editable") is False:
+                raise PermissionError(f"Canvas artifact '{artifact_id}' is read-only.")
+            versions = artifact.get("versions")
+            if not isinstance(versions, list):
+                previous_updated_at = str(
+                    artifact.get("updated_at") or current["updated_at"] or timestamp
+                )
+                versions = [
+                    {
+                        "version": int(artifact.get("version") or 1),
+                        "title": str(artifact.get("title") or ""),
+                        "content": artifact.get("content"),
+                        "updated_at": previous_updated_at,
+                        "source": artifact.get("source") or "existing",
+                    }
+                ]
+            next_version = max(
+                [
+                    int(version.get("version") or 0)
+                    for version in versions
+                    if isinstance(version, dict)
+                ]
+                or [0]
+            ) + 1
+            artifact["content"] = content
+            if title is not None:
+                artifact["title"] = title
+            artifact["updated_at"] = timestamp
+            artifact["version"] = next_version
+            versions.append(
+                {
+                    "version": next_version,
+                    "title": str(artifact.get("title") or ""),
+                    "content": content,
+                    "updated_at": timestamp,
+                    "source": "manual-edit",
+                }
+            )
+            artifact["versions"] = versions[-25:]
+            updated = True
+            break
+        if not updated:
+            raise ValueError(f"Unknown canvas artifact '{artifact_id}'.")
+
+        metadata["canvas_artifacts"] = artifacts
+        self.store.upsert_task_run(
+            {
+                "task_id": current["task_id"],
+                "prompt": current["prompt"],
+                "task_type": current["task_type"],
+                "preset_mode": current["preset_mode"],
+                "status": current["status"],
+                "provider": current["provider"],
+                "message": current["message"],
+                "output_text": current["output_text"],
+                "error_message": current["error_message"],
+                "repo_path": current["repo_path"],
+                "request_payload": json.dumps(current["request_payload"]),
+                "metadata_json": json.dumps(metadata),
+                "requires_approval": int(current["requires_approval"]),
+                "approval_status": current["approval_status"],
+                "coordinator_model_id": current["coordinator_model_id"],
+                "created_at": current["created_at"],
+                "updated_at": timestamp,
+            }
+        )
+        return self.get_task_detail(task_id)
+
     def get_task_detail(self, task_id: str) -> TaskHistoryDetail | None:
         """Return one task detail including persisted stages and approval."""
         row = self.store.get_task_run(task_id)

@@ -52,3 +52,10 @@ class TaskHistoryDetail(TaskHistorySummary):
     metadata: dict[str, Any] = Field(default_factory=dict)
     stages: list[StageHistoryRecord] = Field(default_factory=list)
     approval: ApprovalRecord | None = None
+
+
+class CanvasArtifactUpdate(BaseModel):
+    """Editable canvas artifact update payload."""
+
+    title: str | None = Field(default=None, max_length=160)
+    content: Any

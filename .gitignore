@@ -7,6 +7,12 @@ frontend/*.tsbuildinfo
 frontend/*.js
 frontend/*.d.ts
 app/data/*.db
+app/data/files/
+app/data/artifacts/
+app/data/mcp_servers.json
+app/data/mcp_audit.json
+app/data/project_spaces.json
+app/data/skill_settings.json
 
 # Local model/API secrets and machine-specific config must not be committed.
 app/model_control/provider_secrets.json
@@ -15,6 +21,7 @@ app/model_control/*_local.json
 
 # Local planning drafts and temporary workspaces.
 .planning/
+.byte-os/
 .planning/quick/
 .planning/workspaces/
 .planning/local/

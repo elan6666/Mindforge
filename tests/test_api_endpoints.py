@@ -9,11 +9,16 @@ from app.backend.services.coordinator_selection_service import (
 )
 from app.backend.services.academic_context_service import clear_academic_context_service_cache
 from app.backend.services.approval_service import clear_approval_service_cache
+from app.backend.services.artifact_service import clear_artifact_service_cache
 from app.backend.services.github_context_service import clear_github_context_service_cache
+from app.backend.services.file_context_service import clear_file_context_service_cache
 from app.backend.services.history_service import clear_history_service_cache
+from app.backend.services.mcp_service import clear_mcp_service_cache
 from app.backend.services.model_registry_service import clear_model_registry_service_cache
 from app.backend.services.model_routing_service import clear_model_routing_service_cache
+from app.backend.services.project_space_service import clear_project_space_service_cache
 from app.backend.services.rule_template_service import clear_rule_template_service_cache
+from app.backend.services.skill_registry_service import clear_skill_registry_service_cache
 from app.backend.main import create_app
 from app.backend.services.task_service import clear_task_service_cache
 
@@ -59,10 +64,25 @@ def isolated_model_control_storage(tmp_path, monkeypatch):
 @pytest.fixture()
 def isolated_history_storage(tmp_path, monkeypatch):
     db_path = tmp_path / "mindforge-test.db"
+    file_storage_path = tmp_path / "files"
+    artifact_storage_path = tmp_path / "artifacts"
+    mcp_registry_path = tmp_path / "mcp_servers.json"
+    project_spaces_path = tmp_path / "project_spaces.json"
+    skill_settings_path = tmp_path / "skill_settings.json"
     monkeypatch.setenv("SQLITE_DB_PATH", str(db_path))
+    monkeypatch.setenv("FILE_STORAGE_PATH", str(file_storage_path))
+    monkeypatch.setenv("ARTIFACT_STORAGE_PATH", str(artifact_storage_path))
+    monkeypatch.setenv("MCP_REGISTRY_PATH", str(mcp_registry_path))
+    monkeypatch.setenv("PROJECT_SPACES_PATH", str(project_spaces_path))
+    monkeypatch.setenv("SKILL_SETTINGS_PATH", str(skill_settings_path))
     monkeypatch.setenv("OPENHANDS_MODE", "mock")
     clear_settings_cache()
     clear_history_service_cache()
+    clear_file_context_service_cache()
+    clear_artifact_service_cache()
+    clear_mcp_service_cache()
+    clear_project_space_service_cache()
+    clear_skill_registry_service_cache()
     clear_approval_service_cache()
     clear_github_context_service_cache()
     clear_academic_context_service_cache()
@@ -73,6 +93,11 @@ def isolated_history_storage(tmp_path, monkeypatch):
     clear_task_service_cache()
     clear_academic_context_service_cache()
     clear_approval_service_cache()
+    clear_file_context_service_cache()
+    clear_artifact_service_cache()
+    clear_mcp_service_cache()
+    clear_project_space_service_cache()
+    clear_skill_registry_service_cache()
     clear_history_service_cache()
     clear_github_context_service_cache()
     clear_settings_cache()
@@ -240,8 +265,28 @@ def test_tasks_endpoint_routes_chat_to_adapter_without_local_preset_answer(
     assert "mindforge-intake" not in body["data"]["provider"]
 
 
-def test_tasks_endpoint_persists_composer_metadata_to_history(isolated_history_storage):
+def test_tasks_endpoint_persists_composer_metadata_to_history(
+    isolated_history_storage,
+    monkeypatch,
+):
     client = TestClient(create_app())
+
+    class FakeSearchResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "Heading": "Uploaded notes",
+                "AbstractText": "Search context for uploaded notes.",
+                "AbstractURL": "https://example.test/notes",
+                "RelatedTopics": [],
+            }
+
+    monkeypatch.setattr(
+        "app.backend.services.task_service.requests.get",
+        lambda *args, **kwargs: FakeSearchResponse(),
+    )
 
     response = client.post(
         "/api/tasks",
@@ -273,6 +318,8 @@ def test_tasks_endpoint_persists_composer_metadata_to_history(isolated_history_s
     assert body["data"]["metadata"]["tool_flags"]["web_search"] is True
     assert body["data"]["metadata"]["tool_flags"]["deep_analysis"] is True
     assert body["data"]["metadata"]["tool_flags"]["canvas"] is True
+    assert body["data"]["metadata"]["tool_context"]["web_search"]["status"] == "fetched"
+    assert body["data"]["metadata"]["canvas_artifacts"][0]["kind"] == "markdown"
     assert body["data"]["metadata"]["task_model_selection"]["model_id"] == "gpt-5.4"
 
     history_response = client.get(f"/api/history/tasks/{task_id}")
@@ -282,7 +329,401 @@ def test_tasks_endpoint_persists_composer_metadata_to_history(isolated_history_s
     assert history_body["metadata"]["attachments"][0]["metadata"]["source"] == "composer"
     assert history_body["metadata"]["tool_flags"]["web_search"] is True
     assert history_body["metadata"]["tool_flags"]["canvas"] is True
+    assert history_body["metadata"]["tool_context"]["web_search"]["results"][0][
+        "title"
+    ] == "Uploaded notes"
+    assert history_body["metadata"]["canvas_artifacts"][0]["editable"] is True
     assert history_body["metadata"]["task_model_selection"]["model_id"] == "gpt-5.4"
+
+    artifact_id = history_body["metadata"]["canvas_artifacts"][0]["artifact_id"]
+    update_response = client.patch(
+        f"/api/history/tasks/{task_id}/canvas-artifacts/{artifact_id}",
+        json={"title": "Edited canvas", "content": "Edited artifact content"},
+    )
+    update_body = update_response.json()
+
+    assert update_response.status_code == 200
+    assert update_body["metadata"]["canvas_artifacts"][0]["title"] == "Edited canvas"
+    assert update_body["metadata"]["canvas_artifacts"][0]["content"] == (
+        "Edited artifact content"
+    )
+    assert update_body["metadata"]["canvas_artifacts"][0]["updated_at"]
+
+
+def test_files_endpoint_parses_upload_and_task_retrieves_chunks(
+    isolated_history_storage,
+):
+    client = TestClient(create_app())
+
+    upload_response = client.post(
+        "/api/files",
+        files={
+            "file": (
+                "research-notes.md",
+                b"Mindforge file retrieval should cite parsed chunks for uploaded notes.",
+                "text/markdown",
+            )
+        },
+    )
+    upload_body = upload_response.json()
+
+    assert upload_response.status_code == 201
+    assert upload_body["status"] == "parsed"
+    assert upload_body["parser"] == "plain-text"
+    assert upload_body["chunk_count"] == 1
+    assert "raw_path" not in upload_body["metadata"]
+
+    task_response = client.post(
+        "/api/tasks",
+        json={
+            "prompt": "Summarize the uploaded retrieval notes.",
+            "attachments": [
+                {
+                    "file_id": upload_body["file_id"],
+                    "name": upload_body["name"],
+                    "mime_type": upload_body["mime_type"],
+                    "size_bytes": upload_body["size_bytes"],
+                    "parsed_status": upload_body["status"],
+                    "chunk_count": upload_body["chunk_count"],
+                }
+            ],
+        },
+    )
+    task_body = task_response.json()
+
+    assert task_response.status_code == 200
+    file_context = task_body["data"]["metadata"]["file_context"]
+    assert file_context["status"] == "retrieved"
+    assert file_context["files"][0]["file_id"] == upload_body["file_id"]
+    assert "raw_path" not in file_context["files"][0]["metadata"]
+    assert "parsed chunks" in file_context["chunks"][0]["text"]
+    assert "Uploaded file context:" in task_body["data"]["output"]
+
+
+def test_files_endpoint_lists_and_deletes_uploads(isolated_history_storage):
+    client = TestClient(create_app())
+
+    upload_response = client.post(
+        "/api/files",
+        files={"file": ("notes.txt", b"delete me", "text/plain")},
+    )
+    file_id = upload_response.json()["file_id"]
+
+    list_response = client.get("/api/files")
+    delete_response = client.delete(f"/api/files/{file_id}")
+    after_delete_response = client.get(f"/api/files/{file_id}")
+
+    assert upload_response.status_code == 201
+    assert any(item["file_id"] == file_id for item in list_response.json())
+    assert delete_response.status_code == 204
+    assert after_delete_response.status_code == 404
+
+
+def test_artifacts_endpoint_exports_downloadable_documents(isolated_history_storage):
+    client = TestClient(create_app())
+
+    created = []
+    for format_name in ["md", "tex", "docx", "pdf"]:
+        response = client.post(
+            "/api/artifacts/export",
+            json={
+                "title": "Mindforge report",
+                "content": "# Summary\n- verified export",
+                "format": format_name,
+            },
+        )
+        body = response.json()
+
+        assert response.status_code == 201
+        assert body["format"] == format_name
+        assert body["size_bytes"] > 0
+        created.append(body)
+
+        download_response = client.get(body["download_url"])
+        assert download_response.status_code == 200
+        assert download_response.content
+
+    list_response = client.get("/api/artifacts")
+    assert list_response.status_code == 200
+    assert {item["artifact_id"] for item in list_response.json()} == {
+        item["artifact_id"] for item in created
+    }
+
+
+def test_tasks_endpoint_generates_document_artifact_from_prompt(
+    isolated_history_storage,
+    monkeypatch,
+):
+    client = TestClient(create_app())
+
+    class FakeSearchResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "Heading": "GitHub trending",
+                "AbstractText": "Current GitHub hot repositories.",
+                "AbstractURL": "https://example.test/github-trending",
+                "RelatedTopics": [],
+            }
+
+    monkeypatch.setattr(
+        "app.backend.services.task_service.requests.get",
+        lambda *args, **kwargs: FakeSearchResponse(),
+    )
+
+    response = client.post(
+        "/api/tasks",
+        json={"prompt": "帮我做一个 GitHub 热点的 PDF"},
+    )
+    body = response.json()
+    task_id = body["data"]["metadata"]["task_id"]
+    artifact = body["data"]["metadata"]["generated_artifacts"][0]
+
+    assert response.status_code == 200
+    assert body["data"]["metadata"]["document_generation"]["format"] == "pdf"
+    assert body["data"]["metadata"]["tool_flags"]["web_search"] is True
+    assert artifact["format"] == "pdf"
+    assert artifact["download_url"] in body["data"]["output"]
+    assert client.get(artifact["download_url"]).status_code == 200
+
+    history_response = client.get(f"/api/history/tasks/{task_id}")
+    history_body = history_response.json()
+
+    assert history_response.status_code == 200
+    assert history_body["metadata"]["generated_artifacts"][0]["artifact_id"] == (
+        artifact["artifact_id"]
+    )
+
+
+def test_skills_endpoint_discovers_local_skill(tmp_path, monkeypatch):
+    skill_root = tmp_path / "skills"
+    skill_dir = skill_root / "frontend-design"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: frontend-design\ndescription: Polish UI.\n---\n\nUse refined visual design.",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SKILL_ROOTS", json.dumps([str(skill_root)]))
+    monkeypatch.setenv("SKILL_SETTINGS_PATH", str(tmp_path / "skill_settings.json"))
+    clear_settings_cache()
+    clear_skill_registry_service_cache()
+
+    client = TestClient(create_app())
+    list_response = client.get("/api/skills")
+    detail_response = client.get("/api/skills/frontend-design")
+
+    assert list_response.status_code == 200
+    assert list_response.json()[0]["skill_id"] == "frontend-design"
+    assert detail_response.status_code == 200
+    assert "Use refined visual design" in detail_response.json()["content_excerpt"]
+    update_response = client.patch(
+        "/api/skills/frontend-design",
+        json={"enabled": False, "trust_level": "disabled", "notes": "test off"},
+    )
+    list_after_update = client.get("/api/skills")
+
+    assert update_response.status_code == 200
+    assert update_response.json()["enabled"] is False
+    assert update_response.json()["trust_level"] == "disabled"
+    assert list_after_update.json()[0]["enabled"] is False
+
+    clear_skill_registry_service_cache()
+    clear_settings_cache()
+
+
+def test_mcp_endpoints_manage_servers_and_tools(isolated_history_storage, monkeypatch):
+    client = TestClient(create_app())
+
+    class FakeMCPResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        assert url == "http://mcp.example/rpc"
+        assert headers["X-Test"] == "1"
+        method = json["method"]
+        if method == "initialize":
+            return FakeMCPResponse({"jsonrpc": "2.0", "id": json["id"], "result": {}})
+        if method == "tools/list":
+            return FakeMCPResponse(
+                {
+                    "jsonrpc": "2.0",
+                    "id": json["id"],
+                    "result": {
+                        "tools": [
+                            {
+                                "name": "read_file",
+                                "description": "Read a file",
+                                "inputSchema": {"type": "object"},
+                            }
+                        ]
+                    },
+                }
+            )
+        if method == "tools/call":
+            return FakeMCPResponse(
+                {
+                    "jsonrpc": "2.0",
+                    "id": json["id"],
+                    "result": {"content": [{"type": "text", "text": "file text"}]},
+                }
+            )
+        raise AssertionError(method)
+
+    monkeypatch.setattr("app.backend.services.mcp_service.requests.post", fake_post)
+
+    create_response = client.post(
+        "/api/mcp/servers",
+        json={
+            "server_id": "filesystem",
+            "display_name": "Filesystem",
+            "endpoint_url": "http://mcp.example/rpc",
+            "enabled": True,
+            "headers": {"X-Test": "1"},
+            "allowed_tools": ["read_file"],
+            "blocked_tools": ["delete_file"],
+            "tool_call_requires_approval": True,
+            "notes": "local files",
+        },
+    )
+    tools_response = client.get("/api/mcp/servers/filesystem/tools")
+    approval_response = client.post(
+        "/api/mcp/servers/filesystem/tools/call",
+        json={"tool_name": "read_file", "arguments": {"path": "README.md"}},
+    )
+    blocked_response = client.post(
+        "/api/mcp/servers/filesystem/tools/call",
+        json={
+            "tool_name": "delete_file",
+            "arguments": {"path": "README.md"},
+            "approved": True,
+        },
+    )
+    call_response = client.post(
+        "/api/mcp/servers/filesystem/tools/call",
+        json={
+            "tool_name": "read_file",
+            "arguments": {"path": "README.md"},
+            "approved": True,
+            "approval_comment": "test approval",
+        },
+    )
+    task_response = client.post(
+        "/api/tasks",
+        json={"prompt": "Use MCP tools", "mcp_server_ids": ["filesystem"]},
+    )
+
+    assert create_response.status_code == 201
+    listed_server = client.get("/api/mcp/servers").json()[0]
+    assert listed_server["server_id"] == "filesystem"
+    assert listed_server["headers"] == {"X-Test": "***"}
+    assert listed_server["headers_configured"] is True
+    assert listed_server["tool_call_requires_approval"] is True
+    assert listed_server["allowed_tools"] == ["read_file"]
+    assert listed_server["blocked_tools"] == ["delete_file"]
+    assert tools_response.status_code == 200
+    assert tools_response.json()["tools"][0]["name"] == "read_file"
+    assert call_response.status_code == 200
+    assert approval_response.json()["status"] == "approval_required"
+    assert blocked_response.json()["status"] == "blocked"
+    assert call_response.json()["status"] == "ok"
+    audit_response = client.get("/api/mcp/audit")
+    assert audit_response.status_code == 200
+    audit_statuses = {item["status"] for item in audit_response.json()}
+    assert {"approval_required", "blocked", "ok"}.issubset(audit_statuses)
+    assert task_response.status_code == 200
+    assert task_response.json()["data"]["metadata"]["mcp_context"]["status"] == "ready"
+
+
+def test_mcp_endpoint_accepts_stdio_server_config(isolated_history_storage):
+    client = TestClient(create_app())
+
+    create_response = client.post(
+        "/api/mcp/servers",
+        json={
+            "server_id": "stdio-files",
+            "display_name": "stdio files",
+            "transport": "stdio",
+            "command": "python",
+            "args": ["-m", "fake_mcp"],
+            "env": {"TOKEN": "secret"},
+            "enabled": True,
+            "tool_call_requires_approval": True,
+        },
+    )
+    list_response = client.get("/api/mcp/servers")
+
+    assert create_response.status_code == 201
+    body = list_response.json()[0]
+    assert body["transport"] == "stdio"
+    assert body["command"] == "python"
+    assert body["env"] == {"TOKEN": "***"}
+    assert body["env_configured"] is True
+
+
+def test_project_spaces_inject_project_context_into_tasks(isolated_history_storage):
+    client = TestClient(create_app())
+
+    create_response = client.post(
+        "/api/projects",
+        json={
+            "project_id": "mindforge-dev",
+            "display_name": "Mindforge Dev",
+            "description": "Build the Mindforge web app.",
+            "instructions": "Answer in concise Chinese and preserve product decisions.",
+            "memory": "MCP calls require approval and audit.",
+            "repo_path": ".",
+            "skill_ids": ["frontend-design"],
+            "mcp_server_ids": ["filesystem"],
+            "tags": ["dev"],
+            "enabled": True,
+        },
+    )
+    task_response = client.post(
+        "/api/tasks",
+        json={"prompt": "继续优化产品", "project_id": "mindforge-dev"},
+    )
+
+    assert create_response.status_code == 201
+    assert client.get("/api/projects").json()[0]["project_id"] == "mindforge-dev"
+    body = task_response.json()
+    assert task_response.status_code == 200
+    assert body["data"]["metadata"]["project_id"] == "mindforge-dev"
+    assert body["data"]["metadata"]["project_context"]["status"] == "ready"
+    assert "Project space context:" in body["data"]["output"]
+    assert "MCP calls require approval and audit." in body["data"]["output"]
+
+
+def test_canvas_artifact_updates_create_versions(isolated_history_storage):
+    client = TestClient(create_app())
+
+    task_response = client.post(
+        "/api/tasks",
+        json={"prompt": "生成画布", "tool_flags": {"canvas": True}},
+    )
+    task_body = task_response.json()
+    task_id = task_body["data"]["metadata"]["task_id"]
+    artifact = task_body["data"]["metadata"]["canvas_artifacts"][0]
+
+    update_response = client.patch(
+        f"/api/history/tasks/{task_id}/canvas-artifacts/{artifact['artifact_id']}",
+        json={"title": "新版画布", "content": "第二版内容"},
+    )
+    updated_artifact = update_response.json()["metadata"]["canvas_artifacts"][0]
+
+    assert task_response.status_code == 200
+    assert update_response.status_code == 200
+    assert updated_artifact["version"] == 2
+    assert len(updated_artifact["versions"]) == 2
+    assert updated_artifact["versions"][-1]["content"] == "第二版内容"
 
 
 def test_tasks_endpoint_persists_conversation_context_to_history(isolated_history_storage):

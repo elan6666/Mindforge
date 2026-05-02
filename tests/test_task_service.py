@@ -1,3 +1,5 @@
+import requests
+
 from app.backend.core.config import Settings
 from app.backend.schemas.github_context import GitHubContextSummary
 from app.backend.schemas.task import TaskRequest
@@ -15,6 +17,11 @@ from app.backend.services.task_service import TaskService
 
 def make_service(tmp_path, **settings_overrides) -> TaskService:
     settings_overrides.setdefault("sqlite_db_path", str(tmp_path / "mindforge-test.db"))
+    settings_overrides.setdefault("file_storage_path", str(tmp_path / "files"))
+    settings_overrides.setdefault("artifact_storage_path", str(tmp_path / "artifacts"))
+    settings_overrides.setdefault("mcp_registry_path", str(tmp_path / "mcp_servers.json"))
+    settings_overrides.setdefault("project_spaces_path", str(tmp_path / "project_spaces.json"))
+    settings_overrides.setdefault("skill_settings_path", str(tmp_path / "skill_settings.json"))
     settings = Settings(**settings_overrides)
     return TaskService(
         settings,
@@ -79,6 +86,172 @@ def test_submit_includes_composer_attachments_and_tool_flags_metadata(tmp_path):
     assert metadata["tool_flags"]["deep_analysis"] is True
     assert metadata["tool_flags"]["code_execution"] is False
     assert metadata["task_model_selection"]["model_id"] == "gpt-5.4"
+
+
+def test_submit_executes_enabled_tool_capabilities(tmp_path, monkeypatch):
+    service = make_service(
+        tmp_path,
+        openhands_mode="mock",
+        code_execution_requires_approval=False,
+    )
+
+    class FakeSearchResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "Heading": "Mindforge",
+                "AbstractText": "Mindforge is a multi-agent workspace.",
+                "AbstractURL": "https://example.test/mindforge",
+                "RelatedTopics": [],
+            }
+
+    class FakePageResponse:
+        text = "<html><body>Mindforge is a multi-agent workspace.</body></html>"
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        if "duckduckgo.com" in url:
+            return FakeSearchResponse()
+        return FakePageResponse()
+
+    monkeypatch.setattr(
+        "app.backend.services.task_service.requests.get",
+        fake_get,
+    )
+
+    response = service.submit(
+        TaskRequest(
+            prompt="Search and run this:\n```python\nprint(2 + 2)\n```",
+            tool_flags={
+                "deep_analysis": True,
+                "web_search": True,
+                "code_execution": True,
+                "canvas": True,
+            },
+        )
+    )
+
+    metadata = response.data.metadata
+    tool_context = metadata["tool_context"]
+
+    assert response.status == "completed"
+    assert tool_context["deep_analysis"]["status"] == "enabled"
+    assert tool_context["web_search"]["status"] == "fetched"
+    assert tool_context["web_search"]["results"][0]["title"] == "Mindforge"
+    assert tool_context["code_execution"]["status"] == "completed"
+    assert tool_context["code_execution"]["stdout"].strip() == "4"
+    assert "Mindforge tool context:" in response.data.output
+    assert "stdout: 4" in response.data.output
+    assert metadata["canvas_artifacts"][0]["kind"] == "markdown"
+    assert metadata["canvas_artifacts"][1]["kind"] == "code-execution-result"
+    assert metadata["execution_report"]["runtime_boundary"]["code_execution"] == (
+        "approval-gated-python-snippet"
+    )
+
+
+def test_code_execution_is_blocked_without_approval_by_default(tmp_path):
+    service = make_service(tmp_path, openhands_mode="mock")
+
+    response = service.submit(
+        TaskRequest(
+            prompt="Run this:\n```python\nprint(2 + 2)\n```",
+            tool_flags={"code_execution": True},
+        )
+    )
+
+    code_context = response.data.metadata["tool_context"]["code_execution"]
+    assert response.status == "completed"
+    assert code_context["status"] == "blocked"
+    assert "requires an approved task" in code_context["reason"]
+    assert response.data.metadata["execution_report"]["warnings"]
+
+
+def test_submit_generates_document_artifact_from_natural_language_request(
+    tmp_path,
+    monkeypatch,
+):
+    service = make_service(tmp_path, openhands_mode="mock")
+
+    class FakeSearchResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "Heading": "GitHub trending",
+                "AbstractText": "Current GitHub hot repositories and developer trends.",
+                "AbstractURL": "https://example.test/github-trending",
+                "RelatedTopics": [],
+            }
+
+    monkeypatch.setattr(
+        "app.backend.services.task_service.requests.get",
+        lambda *args, **kwargs: FakeSearchResponse(),
+    )
+
+    response = service.submit(TaskRequest(prompt="帮我做一个 GitHub 热点的 PDF"))
+
+    metadata = response.data.metadata
+    artifact = metadata["generated_artifacts"][0]
+    assert response.status == "completed"
+    assert metadata["document_generation"]["format"] == "pdf"
+    assert metadata["document_generation"]["status"] == "generated"
+    assert metadata["tool_flags"]["web_search"] is True
+    assert metadata["tool_context"]["web_search"]["status"] == "fetched"
+    assert artifact["format"] == "pdf"
+    assert artifact["source_task_id"] == metadata["task_id"]
+    assert artifact["download_url"] in response.data.output
+    assert (tmp_path / "artifacts").exists()
+
+
+def test_web_search_uses_browser_reader_when_http_page_read_fails(
+    tmp_path,
+    monkeypatch,
+):
+    service = make_service(tmp_path, openhands_mode="mock")
+
+    class FakeSearchResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "Heading": "Mindforge Docs",
+                "AbstractText": "Initial search result.",
+                "AbstractURL": "https://example.test/rendered",
+                "RelatedTopics": [],
+            }
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        if "duckduckgo.com" in url:
+            return FakeSearchResponse()
+        raise requests.RequestException("static fetch failed")
+
+    monkeypatch.setattr(
+        "app.backend.services.task_service.requests.get",
+        fake_get,
+    )
+    monkeypatch.setattr(
+        "app.backend.services.task_service.TaskService._read_page_with_browser",
+        staticmethod(lambda url: "Browser rendered Mindforge documentation content."),
+    )
+
+    response = service.submit(
+        TaskRequest(
+            prompt="Find Mindforge documentation",
+            web_search=True,
+        )
+    )
+
+    web_context = response.data.metadata["tool_context"]["web_search"]
+    assert web_context["status"] == "fetched"
+    assert web_context["results"][0]["source_type"] == "browser_page"
+    assert web_context["results"][0]["read_method"] == "browser"
+    assert web_context["citations"][0]["url"] == "https://example.test/rendered"
 
 
 def test_submit_includes_conversation_history_metadata_and_prompt_context(tmp_path):
@@ -153,9 +326,12 @@ def test_submit_includes_requested_skills_metadata_and_prompt_context(tmp_path):
 
     assert response.status == "completed"
     assert response.data.metadata["skills"] == ["frontend-design", "gsd-do"]
-    assert "Requested skills:" in response.data.output
-    assert "- frontend-design" in response.data.output
-    assert "- gsd-do" in response.data.output
+    assert (
+        "Loaded local skills:" in response.data.output
+        or "Requested skills:" in response.data.output
+    )
+    assert "frontend-design" in response.data.output
+    assert "gsd-do" in response.data.output
 
 
 def test_greeting_uses_adapter_boundary_not_local_preset_response(tmp_path):
@@ -188,10 +364,45 @@ def test_date_question_uses_adapter_boundary_with_conversation_context(tmp_path)
 
     assert response.status == "completed"
     assert response.data.provider == "mock-openhands"
+    assert response.data.metadata["runtime_context"]["current_date"]
     assert "Conversation so far:" in response.data.output
     assert "Current user request:" in response.data.output
+    assert "Current runtime context:" in response.data.output
+    assert "current_date:" in response.data.output
     assert "今天几号" in response.data.output
     assert "mindforge-intake" not in response.data.provider
+
+
+def test_date_question_with_no_web_results_still_uses_runtime_context(
+    tmp_path,
+    monkeypatch,
+):
+    service = make_service(tmp_path, openhands_mode="mock")
+
+    class FakeSearchResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"RelatedTopics": []}
+
+    monkeypatch.setattr(
+        "app.backend.services.task_service.requests.get",
+        lambda *args, **kwargs: FakeSearchResponse(),
+    )
+
+    response = service.submit(
+        TaskRequest(
+            prompt="今天几号",
+            web_search=True,
+        )
+    )
+
+    assert response.status == "completed"
+    assert response.data.metadata["tool_context"]["web_search"]["status"] == "no_results"
+    assert "current_date:" in response.data.output
+    assert "answer directly from current_date" in response.data.output
+    assert "no web results were found; continue answering" in response.data.output
 
 
 def test_capability_question_uses_adapter_boundary_not_local_preset_response(tmp_path):

@@ -20,6 +20,7 @@ from app.backend.services.model_registry_service import (
     get_model_registry_service,
 )
 from app.backend.services.model_routing_service import clear_model_routing_service_cache
+from app.backend.services.model_routing_service import get_model_routing_service
 from app.backend.services.rule_template_service import (
     clear_rule_template_service_cache,
     get_rule_template_service,
@@ -180,6 +181,44 @@ def test_model_control_creates_user_provider_model_and_secret(
     registry = get_model_registry_service()
     assert registry.get_provider("custom-ark") is not None
     assert registry.get_model("custom-doubao") is not None
+
+
+def test_model_routing_prefers_user_model_without_explicit_override(
+    isolated_model_control_storage,
+):
+    service = get_model_control_service()
+    service.create_provider(
+        ProviderCreateRequest(
+            provider_id="custom-ark",
+            display_name="Custom Ark",
+            description="User-owned Ark endpoint",
+            api_base_url="https://ark.example/v3",
+            protocol="openai-compatible",
+            api_key="secret-value",
+            api_key_env="CUSTOM_ARK_KEY",
+        )
+    )
+    service.create_model(
+        ModelCreateRequest(
+            model_id="custom-doubao",
+            display_name="Custom Doubao",
+            provider_id="custom-ark",
+            upstream_model="doubao-seed-2.0-lite",
+            priority="high",
+            supported_preset_modes=[],
+            supported_task_types=[],
+            supported_roles=[],
+        )
+    )
+
+    selection = get_model_routing_service().resolve_for_task(
+        preset_mode="default",
+        task_type=None,
+        prefer_user_default=True,
+    )
+
+    assert selection.model_id == "custom-doubao"
+    assert selection.selection_source == "user-default"
 
 
 def test_provider_connection_uses_user_saved_api_key(

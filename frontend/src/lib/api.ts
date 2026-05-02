@@ -1,21 +1,32 @@
 import type {
   ApprovalRecord,
+  ArtifactFormat,
+  ArtifactSummary,
   GitHubIssueSummary,
   GitHubPullRequestSummary,
   GitHubRepositorySummary,
+  MCPServerSummary,
+  MCPServerUpsert,
+  MCPToolAuditRecord,
+  MCPToolListResult,
   ModelCreateRequest,
   ModelControlUpdate,
   ModelSummary,
   PresetSummary,
+  ProjectSpaceSummary,
+  ProjectSpaceUpsert,
   ProviderConnectionTestResult,
   ProviderCreateRequest,
   ProviderControlUpdate,
   ProviderSummary,
   RuleTemplateSummary,
   RuleTemplateUpsert,
+  SkillSettingsUpdate,
+  SkillSummary,
   TaskHistoryDetail,
   TaskHistorySummary,
   TaskResult,
+  UploadedFileSummary,
 } from "../types";
 
 const API_BASE_URL =
@@ -28,6 +39,25 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers || {}),
     },
     ...init,
+  });
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(
+      payload.error_message || payload.message || payload.detail || "请求失败。",
+    );
+  }
+  return payload as T;
+}
+
+async function requestForm<T>(path: string, formData: FormData): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    body: formData,
   });
 
   if (response.status === 204) {
@@ -172,6 +202,22 @@ export function deleteHistoryTask(taskId: string): Promise<void> {
   });
 }
 
+export function updateCanvasArtifact(
+  taskId: string,
+  artifactId: string,
+  payload: { title?: string | null; content: unknown },
+): Promise<TaskHistoryDetail> {
+  return requestJson<TaskHistoryDetail>(
+    `/history/tasks/${encodeURIComponent(taskId)}/canvas-artifacts/${encodeURIComponent(
+      artifactId,
+    )}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
 export function fetchConversationHistory(
   conversationId: string,
 ): Promise<TaskHistoryDetail[]> {
@@ -191,6 +237,86 @@ export function deleteConversationHistory(conversationId: string): Promise<void>
 
 export function fetchPendingApprovals(): Promise<ApprovalRecord[]> {
   return requestJson<ApprovalRecord[]>("/approvals/pending");
+}
+
+export function fetchSkills(): Promise<SkillSummary[]> {
+  return requestJson<SkillSummary[]>("/skills");
+}
+
+export function updateSkillSettings(
+  skillId: string,
+  payload: SkillSettingsUpdate,
+): Promise<SkillSummary> {
+  return requestJson<SkillSummary>(`/skills/${encodeURIComponent(skillId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchProjectSpaces(): Promise<ProjectSpaceSummary[]> {
+  return requestJson<ProjectSpaceSummary[]>("/projects");
+}
+
+export function createProjectSpace(
+  payload: ProjectSpaceUpsert,
+): Promise<ProjectSpaceSummary> {
+  return requestJson<ProjectSpaceSummary>("/projects", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteProjectSpace(projectId: string): Promise<void> {
+  return requestJson<void>(`/projects/${encodeURIComponent(projectId)}`, {
+    method: "DELETE",
+  });
+}
+
+export function fetchMcpServers(): Promise<MCPServerSummary[]> {
+  return requestJson<MCPServerSummary[]>("/mcp/servers");
+}
+
+export function fetchMcpAudit(): Promise<MCPToolAuditRecord[]> {
+  return requestJson<MCPToolAuditRecord[]>("/mcp/audit");
+}
+
+export function createMcpServer(
+  payload: MCPServerUpsert,
+): Promise<MCPServerSummary> {
+  return requestJson<MCPServerSummary>("/mcp/servers", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteMcpServer(serverId: string): Promise<void> {
+  return requestJson<void>(`/mcp/servers/${encodeURIComponent(serverId)}`, {
+    method: "DELETE",
+  });
+}
+
+export function fetchMcpTools(serverId: string): Promise<MCPToolListResult> {
+  return requestJson<MCPToolListResult>(
+    `/mcp/servers/${encodeURIComponent(serverId)}/tools`,
+  );
+}
+
+export function uploadFile(file: File): Promise<UploadedFileSummary> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return requestForm<UploadedFileSummary>("/files", formData);
+}
+
+export function exportArtifact(payload: {
+  title: string;
+  content: string;
+  format: ArtifactFormat;
+  source_task_id?: string | null;
+}): Promise<ArtifactSummary> {
+  return requestJson<ArtifactSummary>("/artifacts/export", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function approveTask(taskId: string, comment?: string): Promise<TaskResult> {
@@ -241,6 +367,7 @@ export function submitTask(payload: {
   task_type?: string | null;
   model_override?: string | null;
   rule_template_id?: string | null;
+  project_id?: string | null;
   github_repo?: string | null;
   github_issue_number?: number | null;
   github_pr_number?: number | null;
@@ -253,16 +380,20 @@ export function submitTask(payload: {
     metadata?: Record<string, unknown>;
   }>;
   skills?: string[];
+  mcp_server_ids?: string[];
   journal_name?: string | null;
   journal_url?: string | null;
   reference_paper_urls?: string[];
   role_model_overrides?: Record<string, string>;
   attachments?: Array<{
     id?: string | null;
+    file_id?: string | null;
     name?: string | null;
     mime_type?: string | null;
     size_bytes?: number | null;
     text_excerpt?: string | null;
+    parsed_status?: string | null;
+    chunk_count?: number | null;
     metadata?: Record<string, unknown>;
   }>;
   tool_flags?: {

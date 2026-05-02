@@ -106,6 +106,31 @@ def test_http_mode_request_error_returns_failed_result(monkeypatch):
     assert result.error_message == "network down"
 
 
+def test_http_mode_without_base_url_does_not_fall_back_to_mock():
+    adapter = OpenHandsAdapter(
+        make_settings(
+            openhands_mode="http",
+            openhands_base_url=None,
+        )
+    )
+
+    result = adapter.run_task({"prompt": "ping"})
+
+    assert result.status == "failed"
+    assert result.provider == "openhands-http"
+    assert "OPENHANDS_BASE_URL" in str(result.error_message)
+
+
+def test_unknown_mode_does_not_fall_back_to_mock():
+    adapter = OpenHandsAdapter(make_settings(openhands_mode="typo"))
+
+    result = adapter.run_task({"prompt": "ping"})
+
+    assert result.status == "failed"
+    assert result.provider == "openhands-adapter"
+    assert result.metadata["mode"] == "typo"
+
+
 def test_model_api_mode_calls_openai_compatible_endpoint(monkeypatch):
     adapter = OpenHandsAdapter(make_settings(openhands_mode="model-api"))
     monkeypatch.setenv("ARK_API_KEY", "test-secret")
@@ -150,6 +175,56 @@ def test_model_api_mode_calls_openai_compatible_endpoint(monkeypatch):
     assert result.provider == "model-api:volces-ark"
     assert result.output == "model api ok"
     assert result.metadata["usage"]["total_tokens"] == 12
+
+
+def test_model_api_mode_applies_tool_flags_to_system_prompt(monkeypatch):
+    adapter = OpenHandsAdapter(
+        make_settings(openhands_mode="model-api", model_api_max_tokens=1200)
+    )
+    monkeypatch.setenv("ARK_API_KEY", "test-secret")
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [{"message": {"content": "deep ok"}}],
+                "usage": {"total_tokens": 32},
+            }
+
+    def fake_post(url, headers, json, timeout):
+        system_prompt = json["messages"][0]["content"]
+        assert "Deep analysis mode is enabled" in system_prompt
+        assert "Web search context may be included" in system_prompt
+        assert "Code execution results may be included" in system_prompt
+        assert "Canvas mode is enabled" in system_prompt
+        assert json["max_tokens"] == 2400
+        return FakeResponse()
+
+    monkeypatch.setattr(requests, "post", fake_post)
+
+    result = adapter.run_task(
+        {
+            "prompt": "ping",
+            "model": "doubao-seed-2.0-lite",
+            "provider_id": "volces-ark",
+            "metadata": {
+                "tool_flags": {
+                    "deep_analysis": True,
+                    "web_search": True,
+                    "code_execution": True,
+                    "canvas": True,
+                }
+            },
+        }
+    )
+
+    assert result.status == "completed"
+    assert result.metadata["tool_flags_applied"]["deep_analysis"] is True
+    assert result.metadata["max_tokens"] == 2400
 
 
 def test_model_api_mode_uses_saved_provider_secret(tmp_path, monkeypatch):

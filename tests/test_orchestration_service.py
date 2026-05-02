@@ -149,6 +149,35 @@ def test_execute_code_engineering_injects_github_context_into_stage_prompt():
     )
 
 
+def test_execute_code_engineering_injects_runtime_context_into_stage_prompt():
+    preset, _ = PresetService().resolve("code-engineering")
+    adapter = RecordingAdapter()
+    service = SerialOrchestrationService(adapter, get_model_routing_service())
+
+    response = service.execute_code_engineering(
+        TaskRequest(
+            prompt="今天几号",
+            preset_mode="code-engineering",
+            metadata={
+                "runtime_context": {
+                    "current_date": "2026-05-01",
+                    "current_time": "09:30:00",
+                    "weekday": "Friday",
+                    "timezone": "EDT",
+                    "utc_offset": "-0400",
+                }
+            },
+        ),
+        preset,
+    )
+
+    assert response.status == "completed"
+    first_prompt = adapter.calls[0]["prompt"]
+    assert "Current runtime context:" in first_prompt
+    assert "current_date: 2026-05-01" in first_prompt
+    assert "answer directly from these facts" in first_prompt
+
+
 def test_execute_code_engineering_stops_on_failed_stage():
     preset, _ = PresetService().resolve("code-engineering")
     adapter = RecordingAdapter(fail_on_role="backend")

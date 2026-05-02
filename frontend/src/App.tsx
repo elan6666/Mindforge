@@ -1,20 +1,37 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type KeyboardEvent,
+} from "react";
 import {
   approveTask,
+  createMcpServer,
   createModelControl,
+  createProjectSpace,
   createProviderControl,
   createRuleTemplate,
   deleteConversationHistory,
   deleteHistoryTask,
+  deleteMcpServer,
   deleteModelControl,
+  deleteProjectSpace,
   deleteProviderControl,
   deleteRuleTemplate,
+  exportArtifact,
   fetchConversationHistory,
   fetchEditableModels,
   fetchHistoryTasks,
+  fetchMcpServers,
+  fetchMcpAudit,
+  fetchMcpTools,
   fetchModels,
   fetchPendingApprovals,
   fetchPresets,
+  fetchProjectSpaces,
+  fetchSkills,
   fetchUserProviders,
   fetchRuleTemplates,
   fetchTaskHistoryDetail,
@@ -22,22 +39,36 @@ import {
   rejectTask,
   submitTask,
   testProviderConnection,
+  updateSkillSettings,
+  uploadFile,
+  updateCanvasArtifact,
   updateModelControl,
   updateProviderControl,
   updateRuleTemplate,
 } from "./lib/api";
 import type {
   ApprovalRecord,
+  ArtifactFormat,
+  ArtifactSummary,
+  CanvasArtifact,
+  MCPServerSummary,
+  MCPServerUpsert,
+  MCPToolAuditRecord,
+  MCPToolListResult,
   ModelCreateRequest,
   ModelSummary,
+  ProjectSpaceSummary,
+  ProjectSpaceUpsert,
   ProviderCreateRequest,
   PresetSummary,
   ProviderSummary,
   RuleAssignment,
   RuleTemplateSummary,
+  SkillSummary,
   TaskHistoryDetail,
   TaskHistorySummary,
   TaskResult,
+  UploadedFileSummary,
 } from "./types";
 
 type PanelTab =
@@ -49,16 +80,52 @@ type PanelTab =
   | "approval"
   | "canvas"
   | "metadata";
-type AppView = "workspace" | "models" | "rules";
+type AppView = "workspace" | "models" | "rules" | "tools" | "projects";
 type HistoryFilter = "all" | "completed" | "pending_approval" | "failed" | "rejected";
 type ProviderTestMessage = { status: "success" | "error"; text: string };
+type MCPServerDraft = {
+  server_id: string;
+  display_name: string;
+  transport: "http-jsonrpc" | "stdio";
+  endpoint_url: string;
+  command: string;
+  args: string;
+  env_json: string;
+  working_directory: string;
+  enabled: boolean;
+  headers_json: string;
+  allowed_tools: string;
+  blocked_tools: string;
+  tool_call_requires_approval: boolean;
+  notes: string;
+};
+type ProjectSpaceDraft = {
+  project_id: string;
+  display_name: string;
+  description: string;
+  instructions: string;
+  memory: string;
+  default_preset_mode: string;
+  repo_path: string;
+  github_repo: string;
+  skill_ids: string;
+  mcp_server_ids: string;
+  file_ids: string;
+  tags: string;
+  enabled: boolean;
+};
 type ChatAttachment = {
   id: string;
+  fileId?: string;
   name: string;
   size: number;
   type: string;
   contentExcerpt?: string;
   truncated?: boolean;
+  parsedStatus?: string;
+  chunkCount?: number;
+  parser?: string;
+  uploadError?: string;
 };
 type ChatMessageRole = "user" | "assistant" | "system";
 type ChatMessage = {
@@ -195,7 +262,8 @@ const NAV_ITEMS: Array<{
 }> = [
   { id: "new-task", label: "新任务", hint: "创建", view: "workspace" },
   { id: "history", label: "历史", hint: "最近", view: "workspace" },
-  { id: "projects", label: "工作台", hint: "空间", view: "workspace" },
+  { id: "projects", label: "项目", hint: "空间", view: "projects" },
+  { id: "tools", label: "工具", hint: "MCP/Skills", view: "tools" },
   { id: "presets", label: "模板", hint: "规则", view: "rules" },
   { id: "settings", label: "模型", hint: "控制", view: "models" },
 ];
@@ -361,16 +429,30 @@ async function createChatAttachment(file: File): Promise<ChatAttachment> {
     contentExcerpt = content.slice(0, TEXT_ATTACHMENT_LIMIT);
     truncated = content.length > TEXT_ATTACHMENT_LIMIT;
   }
+  let uploaded: UploadedFileSummary | null = null;
+  let uploadError: string | undefined;
+  try {
+    uploaded = await uploadFile(file);
+  } catch (error) {
+    uploadError = error instanceof Error ? error.message : "文件上传解析失败。";
+  }
   const attachmentId =
     globalThis.crypto?.randomUUID?.() ||
     `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const uploadedExcerpt = uploaded?.text_excerpt || "";
+  const effectiveExcerpt = uploadedExcerpt || contentExcerpt;
   return {
-    id: `${file.name}-${file.size}-${file.lastModified}-${attachmentId}`,
-    name: file.name,
-    size: file.size,
-    type: file.type || "unknown",
-    contentExcerpt,
-    truncated,
+    id: uploaded?.file_id || `${file.name}-${file.size}-${file.lastModified}-${attachmentId}`,
+    fileId: uploaded?.file_id,
+    name: uploaded?.name || file.name,
+    size: uploaded?.size_bytes ?? file.size,
+    type: uploaded?.mime_type || file.type || "unknown",
+    contentExcerpt: effectiveExcerpt,
+    truncated: uploaded ? uploaded.char_count > uploadedExcerpt.length : truncated,
+    parsedStatus: uploaded?.status,
+    chunkCount: uploaded?.chunk_count,
+    parser: uploaded?.parser,
+    uploadError,
   };
 }
 
@@ -630,14 +712,20 @@ function buildToolFlags(
 function buildTaskAttachments(attachments: ChatAttachment[]) {
   return attachments.map((attachment) => ({
     id: attachment.id,
+    file_id: attachment.fileId,
     name: attachment.name,
     mime_type: attachment.type,
     size_bytes: attachment.size,
     text_excerpt: attachment.contentExcerpt,
+    parsed_status: attachment.parsedStatus,
+    chunk_count: attachment.chunkCount,
     metadata: {
       source: "composer-upload",
       truncated: Boolean(attachment.truncated),
       has_text_excerpt: Boolean(attachment.contentExcerpt),
+      backend_file_id: attachment.fileId,
+      parser: attachment.parser,
+      upload_error: attachment.uploadError,
     },
   }));
 }
@@ -656,6 +744,43 @@ function createEmptyProviderDraft(): ProviderCreateRequest {
   };
 }
 
+function createEmptyMcpServerDraft(): MCPServerDraft {
+  return {
+    server_id: "",
+    display_name: "",
+    transport: "http-jsonrpc",
+    endpoint_url: "",
+    command: "",
+    args: "",
+    env_json: "{}",
+    working_directory: "",
+    enabled: true,
+    headers_json: "{}",
+    allowed_tools: "",
+    blocked_tools: "",
+    tool_call_requires_approval: true,
+    notes: "",
+  };
+}
+
+function createEmptyProjectSpaceDraft(): ProjectSpaceDraft {
+  return {
+    project_id: "",
+    display_name: "",
+    description: "",
+    instructions: "",
+    memory: "",
+    default_preset_mode: "",
+    repo_path: "",
+    github_repo: "",
+    skill_ids: "",
+    mcp_server_ids: "",
+    file_ids: "",
+    tags: "",
+    enabled: true,
+  };
+}
+
 function createEmptyModelDraft(providerId = ""): ModelCreateRequest {
   return {
     model_id: "",
@@ -671,6 +796,7 @@ function createEmptyModelDraft(providerId = ""): ModelCreateRequest {
 }
 
 export function App() {
+  const composerRef = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState<AppView>("workspace");
   const [activeNavId, setActiveNavId] = useState("new-task");
   const [activeTab, setActiveTab] = useState<PanelTab>("output");
@@ -680,6 +806,11 @@ export function App() {
   const [models, setModels] = useState<ModelSummary[]>([]);
   const [customModels, setCustomModels] = useState<ModelSummary[]>([]);
   const [ruleTemplates, setRuleTemplates] = useState<RuleTemplateSummary[]>([]);
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [mcpServers, setMcpServers] = useState<MCPServerSummary[]>([]);
+  const [mcpAuditRecords, setMcpAuditRecords] = useState<MCPToolAuditRecord[]>([]);
+  const [projectSpaces, setProjectSpaces] = useState<ProjectSpaceSummary[]>([]);
+  const [artifacts, setArtifacts] = useState<ArtifactSummary[]>([]);
   const [historyItems, setHistoryItems] = useState<TaskHistorySummary[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<ApprovalRecord[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -700,6 +831,8 @@ export function App() {
   const [journalUrl, setJournalUrl] = useState("");
   const [referencePaperUrls, setReferencePaperUrls] = useState("");
   const [skillNames, setSkillNames] = useState("");
+  const [mcpServerNames, setMcpServerNames] = useState("");
+  const [selectedProjectId, setSelectedProjectId] = useState("");
   const [requiresApproval, setRequiresApproval] = useState(false);
   const [approvalActions, setApprovalActions] = useState("写入文件");
   const [isToolMenuOpen, setIsToolMenuOpen] = useState(false);
@@ -710,8 +843,14 @@ export function App() {
   >(DEFAULT_CAPABILITY_FLAGS);
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
   const [deletingConversationKey, setDeletingConversationKey] = useState<string | null>(null);
+  const [confirmingDeleteKey, setConfirmingDeleteKey] = useState<string | null>(null);
+  const [canvasDrafts, setCanvasDrafts] = useState<Record<string, string>>({});
+  const [savingCanvasArtifactId, setSavingCanvasArtifactId] = useState<string | null>(null);
+  const [exportingArtifactFormat, setExportingArtifactFormat] =
+    useState<ArtifactFormat | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
@@ -723,6 +862,18 @@ export function App() {
   const [providerApiKeys, setProviderApiKeys] = useState<Record<string, string>>({});
   const [newProvider, setNewProvider] = useState<ProviderCreateRequest>(() =>
     createEmptyProviderDraft(),
+  );
+  const [newMcpServer, setNewMcpServer] = useState<MCPServerDraft>(() =>
+    createEmptyMcpServerDraft(),
+  );
+  const [newProjectSpace, setNewProjectSpace] = useState<ProjectSpaceDraft>(() =>
+    createEmptyProjectSpaceDraft(),
+  );
+  const [mcpToolResults, setMcpToolResults] = useState<Record<string, MCPToolListResult>>(
+    {},
+  );
+  const [loadingMcpToolsServerId, setLoadingMcpToolsServerId] = useState<string | null>(
+    null,
   );
   const [newModel, setNewModel] = useState<ModelCreateRequest>(() =>
     createEmptyModelDraft(),
@@ -784,14 +935,19 @@ export function App() {
   const defaultUserModelId = userModelOptions[0]?.model_id || "";
   const selectedPresetName =
     presets.find((preset) => preset.preset_mode === presetMode)?.display_name || presetMode;
+  const effectiveModelId = modelOverride || defaultUserModelId;
   const selectedModelName =
-    userModelOptions.find((model) => model.model_id === modelOverride)?.display_name ||
+    userModelOptions.find((model) => model.model_id === effectiveModelId)?.display_name ||
     defaultUserModelId ||
     "未选择模型";
   const selectedRuleTemplateName =
     filteredTemplates.find((template) => template.template_id === ruleTemplateId)?.display_name ||
     "自动选择";
   const selectedSkills = useMemo(() => parseSkillList(skillNames), [skillNames]);
+  const selectedMcpServerIds = useMemo(
+    () => parseSkillList(mcpServerNames),
+    [mcpServerNames],
+  );
   const conversationHistoryItems = useMemo(
     () => groupHistoryConversations(historyItems),
     [historyItems],
@@ -852,18 +1008,36 @@ export function App() {
         error instanceof Error ? error.message : "加载模型服务商控制数据失败。";
       return [] as ProviderSummary[];
     });
-    const [presetData, providerData, runtimeModelData, customModelData, templateData] = await Promise.all([
+    const [
+      presetData,
+      providerData,
+      runtimeModelData,
+      customModelData,
+      templateData,
+      skillData,
+      mcpServerData,
+      mcpAuditData,
+      projectSpaceData,
+    ] = await Promise.all([
       fetchPresets(),
       providerDataPromise,
       fetchModels(),
       fetchEditableModels(),
       fetchRuleTemplates(),
+      fetchSkills().catch(() => [] as SkillSummary[]),
+      fetchMcpServers().catch(() => [] as MCPServerSummary[]),
+      fetchMcpAudit().catch(() => [] as MCPToolAuditRecord[]),
+      fetchProjectSpaces().catch(() => [] as ProjectSpaceSummary[]),
     ]);
     setPresets(presetData);
     setProviders(providerData);
     setModels(runtimeModelData);
     setCustomModels(customModelData);
     setRuleTemplates(templateData);
+    setSkills(skillData);
+    setMcpServers(mcpServerData);
+    setMcpAuditRecords(mcpAuditData);
+    setProjectSpaces(projectSpaceData);
     setLoadError(providerLoadError);
     if (!selectedTemplateId && templateData.length > 0) {
       setSelectedTemplateId(templateData[0].template_id);
@@ -969,6 +1143,35 @@ export function App() {
     }
   }, [presetMode, taskType]);
 
+  useEffect(() => {
+    if (!isToolMenuOpen && !isTaskConfigOpen) return;
+
+    function closeComposerOverlays() {
+      setIsToolMenuOpen(false);
+      setIsTaskConfigOpen(false);
+    }
+
+    function handleDocumentPointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (composerRef.current?.contains(target)) return;
+      closeComposerOverlays();
+    }
+
+    function handleDocumentKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeComposerOverlays();
+      }
+    }
+
+    document.addEventListener("pointerdown", handleDocumentPointerDown);
+    document.addEventListener("keydown", handleDocumentKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handleDocumentPointerDown);
+      document.removeEventListener("keydown", handleDocumentKeyDown);
+    };
+  }, [isToolMenuOpen, isTaskConfigOpen]);
+
   function handleNavClick(navId: string, targetView: AppView) {
     setActiveNavId(navId);
     setView(targetView);
@@ -983,10 +1186,13 @@ export function App() {
       setConversationMessages([]);
       setAttachments([]);
       setSkillNames("");
+      setMcpServerNames("");
+      setSelectedProjectId("");
       setCapabilityFlags(DEFAULT_CAPABILITY_FLAGS);
       setSubmitError(null);
       setIsToolMenuOpen(false);
       setIsTaskConfigOpen(false);
+      setConfirmingDeleteKey(null);
     }
   }
 
@@ -1017,6 +1223,11 @@ export function App() {
 
   async function handleDeleteHistoryItem(task: TaskHistorySummary) {
     const deleteKey = task.conversation_id || `task:${task.task_id}`;
+    if (confirmingDeleteKey !== deleteKey) {
+      setConfirmingDeleteKey(deleteKey);
+      setSubmitError("再次点击“确认”将删除这段对话。");
+      return;
+    }
     const deletingActive =
       task.task_id === activeTaskId ||
       (Boolean(task.conversation_id) && task.conversation_id === conversationId);
@@ -1040,6 +1251,7 @@ export function App() {
       } else if (activeTaskId) {
         await refreshHistory(activeTaskId);
       }
+      setConfirmingDeleteKey(null);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "删除对话失败。");
     } finally {
@@ -1050,10 +1262,18 @@ export function App() {
   async function handleAttachmentInput(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files || []);
     if (files.length === 0) return;
-    const nextAttachments = await Promise.all(files.map(createChatAttachment));
-    setAttachments((current) => [...current, ...nextAttachments]);
-    setIsToolMenuOpen(false);
-    event.target.value = "";
+    setIsUploadingAttachments(true);
+    setSubmitError(null);
+    try {
+      const nextAttachments = await Promise.all(files.map(createChatAttachment));
+      setAttachments((current) => [...current, ...nextAttachments]);
+      setIsToolMenuOpen(false);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "上传文件失败。");
+    } finally {
+      setIsUploadingAttachments(false);
+      event.target.value = "";
+    }
   }
 
   function removeAttachment(attachmentId: string) {
@@ -1065,6 +1285,74 @@ export function App() {
       ...current,
       [key]: !current[key],
     }));
+  }
+
+  function openModelSetup() {
+    setView("models");
+    setActiveNavId("settings");
+    setSettingsMessage("先添加模型服务商和模型，然后回到新任务继续对话。");
+  }
+
+  function artifactContentToText(content: unknown): string {
+    if (typeof content === "string") return content;
+    return JSON.stringify(content ?? {}, null, 2);
+  }
+
+  function getCanvasDraft(artifact: CanvasArtifact): string {
+    const artifactId = String(artifact.artifact_id || "");
+    return canvasDrafts[artifactId] ?? artifactContentToText(artifact.content);
+  }
+
+  async function handleSaveCanvasArtifact(artifact: CanvasArtifact) {
+    if (!activeTaskDetail || !artifact.artifact_id) return;
+    const artifactId = String(artifact.artifact_id);
+    setSavingCanvasArtifactId(artifactId);
+    setSubmitError(null);
+    try {
+      const updated = await updateCanvasArtifact(
+        activeTaskDetail.task_id,
+        artifactId,
+        {
+          title: artifact.title,
+          content: getCanvasDraft(artifact),
+        },
+      );
+      setActiveTaskDetail(updated);
+      setCanvasDrafts((current) => {
+        const next = { ...current };
+        delete next[artifactId];
+        return next;
+      });
+      await refreshHistory(updated.task_id);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "保存画布失败。");
+    } finally {
+      setSavingCanvasArtifactId(null);
+    }
+  }
+
+  async function handleExportActiveOutput(format: ArtifactFormat) {
+    const content = activeResult?.data.output || activeTaskDetail?.output || "";
+    if (!content.trim()) {
+      setSubmitError("当前没有可导出的内容。");
+      return;
+    }
+    setExportingArtifactFormat(format);
+    setSubmitError(null);
+    try {
+      const artifact = await exportArtifact({
+        title: activeTaskDetail?.prompt || "Mindforge 输出",
+        content,
+        format,
+        source_task_id: activeTaskDetail?.task_id || null,
+      });
+      setArtifacts((current) => [artifact, ...current.filter((item) => item.artifact_id !== artifact.artifact_id)]);
+      window.open(`${getApiBaseUrl()}${artifact.download_url.replace(/^\/api/, "")}`, "_blank");
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "导出文档失败。");
+    } finally {
+      setExportingArtifactFormat(null);
+    }
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -1083,6 +1371,7 @@ export function App() {
     }
     if (!modelOverride && !defaultUserModelId) {
       setSubmitError("请先在模型控制中心添加并启用一个用户模型。");
+      openModelSetup();
       return;
     }
     setIsSubmitting(true);
@@ -1111,9 +1400,11 @@ export function App() {
         model_override: selectedModelId || undefined,
         role_model_overrides: buildRoleModelOverrides(presetMode, selectedModelId),
         rule_template_id: ruleTemplateId || undefined,
+        project_id: selectedProjectId || undefined,
         conversation_id: currentConversationId,
         conversation_history: buildConversationHistory(priorMessages),
         skills: selectedSkills,
+        mcp_server_ids: selectedMcpServerIds,
         github_repo: fieldConfig.showGitHub ? githubRepo || undefined : undefined,
         github_issue_number:
           fieldConfig.showGitHub && githubIssueNumber
@@ -1348,6 +1639,148 @@ export function App() {
     }
   }
 
+  async function handleSaveMcpServer() {
+    try {
+      const headers = newMcpServer.headers_json.trim()
+        ? (JSON.parse(newMcpServer.headers_json) as Record<string, string>)
+        : {};
+      const env = newMcpServer.env_json.trim()
+        ? (JSON.parse(newMcpServer.env_json) as Record<string, string>)
+        : {};
+      const payload: MCPServerUpsert = {
+        server_id: newMcpServer.server_id.trim(),
+        display_name: newMcpServer.display_name.trim(),
+        transport: newMcpServer.transport,
+        endpoint_url: newMcpServer.endpoint_url.trim(),
+        command: optionalText(newMcpServer.command),
+        args: parseSkillList(newMcpServer.args),
+        env,
+        working_directory: optionalText(newMcpServer.working_directory),
+        enabled: newMcpServer.enabled,
+        headers,
+        allowed_tools: parseSkillList(newMcpServer.allowed_tools),
+        blocked_tools: parseSkillList(newMcpServer.blocked_tools),
+        tool_call_requires_approval: newMcpServer.tool_call_requires_approval,
+        notes: newMcpServer.notes.trim(),
+      };
+      const saved = await createMcpServer(payload);
+      setMcpServers((previous) => [
+        saved,
+        ...previous.filter((item) => item.server_id !== saved.server_id),
+      ]);
+      setNewMcpServer(createEmptyMcpServerDraft());
+      setSettingsError(null);
+      setSettingsMessage(`已保存 MCP Server ${saved.display_name}。`);
+    } catch (error) {
+      setSettingsMessage(null);
+      setSettingsError(
+        error instanceof Error
+          ? error.message
+          : "MCP Server 保存失败，请检查 Headers JSON。",
+      );
+    }
+  }
+
+  async function handleSaveProjectSpace() {
+    try {
+      const payload: ProjectSpaceUpsert = {
+        project_id: newProjectSpace.project_id.trim(),
+        display_name: newProjectSpace.display_name.trim(),
+        description: newProjectSpace.description.trim(),
+        instructions: newProjectSpace.instructions.trim(),
+        memory: newProjectSpace.memory.trim(),
+        default_preset_mode: optionalText(newProjectSpace.default_preset_mode),
+        repo_path: optionalText(newProjectSpace.repo_path),
+        github_repo: optionalText(newProjectSpace.github_repo),
+        skill_ids: parseSkillList(newProjectSpace.skill_ids),
+        mcp_server_ids: parseSkillList(newProjectSpace.mcp_server_ids),
+        file_ids: parseSkillList(newProjectSpace.file_ids),
+        tags: parseSkillList(newProjectSpace.tags),
+        enabled: newProjectSpace.enabled,
+      };
+      const saved = await createProjectSpace(payload);
+      setProjectSpaces((previous) => [
+        saved,
+        ...previous.filter((item) => item.project_id !== saved.project_id),
+      ]);
+      setNewProjectSpace(createEmptyProjectSpaceDraft());
+      setSettingsMessage(`已保存项目空间 ${saved.display_name}。`);
+      setSettingsError(null);
+    } catch (error) {
+      setSettingsError(error instanceof Error ? error.message : "保存项目空间失败。");
+    }
+  }
+
+  async function handleDeleteProjectSpace(project: ProjectSpaceSummary) {
+    try {
+      await deleteProjectSpace(project.project_id);
+      setProjectSpaces((previous) =>
+        previous.filter((item) => item.project_id !== project.project_id),
+      );
+      if (selectedProjectId === project.project_id) {
+        setSelectedProjectId("");
+      }
+      setSettingsMessage(`已删除项目空间 ${project.display_name}。`);
+      setSettingsError(null);
+    } catch (error) {
+      setSettingsError(error instanceof Error ? error.message : "删除项目空间失败。");
+    }
+  }
+
+  async function handleToggleSkill(skill: SkillSummary) {
+    try {
+      const updated = await updateSkillSettings(skill.skill_id, {
+        enabled: !skill.enabled,
+      });
+      setSkills((previous) =>
+        previous.map((item) => (item.skill_id === updated.skill_id ? updated : item)),
+      );
+      setSettingsMessage(`${updated.name} 已${updated.enabled ? "启用" : "禁用"}。`);
+      setSettingsError(null);
+    } catch (error) {
+      setSettingsError(error instanceof Error ? error.message : "更新 Skill 失败。");
+    }
+  }
+
+  async function handleDeleteMcpServer(server: MCPServerSummary) {
+    try {
+      await deleteMcpServer(server.server_id);
+      setMcpServers((previous) =>
+        previous.filter((item) => item.server_id !== server.server_id),
+      );
+      setMcpToolResults((previous) => {
+        const next = { ...previous };
+        delete next[server.server_id];
+        return next;
+      });
+      setSettingsError(null);
+      setSettingsMessage(`已删除 MCP Server ${server.display_name}。`);
+    } catch (error) {
+      setSettingsMessage(null);
+      setSettingsError(error instanceof Error ? error.message : "MCP Server 删除失败。");
+    }
+  }
+
+  async function handleLoadMcpTools(server: MCPServerSummary) {
+    setLoadingMcpToolsServerId(server.server_id);
+    try {
+      const result = await fetchMcpTools(server.server_id);
+      setMcpToolResults((previous) => ({
+        ...previous,
+        [server.server_id]: result,
+      }));
+      setSettingsError(null);
+      setSettingsMessage(`已读取 ${server.display_name} 的工具目录。`);
+    } catch (error) {
+      setSettingsMessage(null);
+      setSettingsError(error instanceof Error ? error.message : "读取 MCP 工具失败。");
+    } finally {
+      setLoadingMcpToolsServerId((current) =>
+        current === server.server_id ? null : current,
+      );
+    }
+  }
+
   function updateTemplateDraft(
     updater: (current: RuleTemplateSummary) => RuleTemplateSummary,
   ) {
@@ -1489,6 +1922,29 @@ export function App() {
     const activeAcademic = activeTaskDetail?.metadata.academic_context;
     const activeTrace = activeTaskDetail?.metadata.orchestration;
     const activeApproval = activeTaskDetail?.approval;
+    const activeMetadata = activeTaskDetail?.metadata || {};
+    const activeToolFlags =
+      typeof activeMetadata.tool_flags === "object" && activeMetadata.tool_flags !== null
+        ? (activeMetadata.tool_flags as Record<string, unknown>)
+        : {};
+    const activeToolContext =
+      typeof activeMetadata.tool_context === "object" && activeMetadata.tool_context !== null
+        ? (activeMetadata.tool_context as Record<string, unknown>)
+        : {};
+    const canvasArtifacts = Array.isArray(activeMetadata.canvas_artifacts)
+      ? (activeMetadata.canvas_artifacts as CanvasArtifact[])
+      : [];
+    const generatedArtifacts = Array.isArray(activeMetadata.generated_artifacts)
+      ? (activeMetadata.generated_artifacts as ArtifactSummary[])
+      : [];
+    const activeExecutionReport =
+      typeof activeMetadata.execution_report === "object" && activeMetadata.execution_report !== null
+        ? (activeMetadata.execution_report as {
+            steps?: Array<Record<string, unknown>>;
+            warnings?: unknown[];
+            runtime_boundary?: Record<string, unknown>;
+          })
+        : null;
     const visibleMessages =
       conversationMessages.length > 0
         ? conversationMessages
@@ -1498,6 +1954,36 @@ export function App() {
     const conversationTurnCount = visibleMessages.filter(
       (message) => message.role === "user",
     ).length;
+    const tabDescriptors: Array<{ tab: PanelTab; count: number; hasData: boolean }> = [
+      {
+        tab: "output",
+        count: activeTaskDetail?.output ? 1 + generatedArtifacts.length : generatedArtifacts.length,
+        hasData: Boolean(activeTaskDetail?.output || generatedArtifacts.length),
+      },
+      {
+        tab: "stages",
+        count: activeTrace?.stages?.length || 0,
+        hasData: Boolean(activeTrace?.stages?.length),
+      },
+      { tab: "repo", count: activeRepo?.repo_summary ? 1 : 0, hasData: Boolean(activeRepo?.repo_summary) },
+      {
+        tab: "github",
+        count: [activeGitHub?.repository, activeGitHub?.issue, activeGitHub?.pull_request].filter(Boolean).length,
+        hasData: Boolean(activeGitHub?.repository || activeGitHub?.issue || activeGitHub?.pull_request),
+      },
+      {
+        tab: "academic",
+        count: (activeAcademic?.journal ? 1 : 0) + (activeAcademic?.reference_papers?.length || 0),
+        hasData: Boolean(activeAcademic?.journal || activeAcademic?.reference_papers?.length),
+      },
+      { tab: "approval", count: activeApproval ? 1 : 0, hasData: Boolean(activeApproval) },
+      {
+        tab: "canvas",
+        count: canvasArtifacts.length + Object.keys(activeToolFlags).length,
+        hasData: Boolean(canvasArtifacts.length || Object.keys(activeToolFlags).length),
+      },
+      { tab: "metadata", count: activeTaskDetail ? 1 : 0, hasData: Boolean(activeTaskDetail) },
+    ];
 
     return (
       <div className="workspace-body view-enter">
@@ -1557,7 +2043,7 @@ export function App() {
               )}
             </div>
 
-            <div className="chat-composer">
+            <div className="chat-composer" ref={composerRef}>
               {isTaskConfigOpen && (
                 <div className="composer-config-panel" id="task-config-panel">
                   <div className="composer-config-head">
@@ -1584,6 +2070,25 @@ export function App() {
                           </option>
                         ))}
                       </select>
+                    </label>
+                    <label className="full-width">
+                      <span>项目空间</span>
+                      <select
+                        value={selectedProjectId}
+                        onChange={(event) => setSelectedProjectId(event.target.value)}
+                      >
+                        <option value="">不使用项目空间</option>
+                        {projectSpaces
+                          .filter((project) => project.enabled)
+                          .map((project) => (
+                            <option key={project.project_id} value={project.project_id}>
+                              {project.display_name} / {project.project_id}
+                            </option>
+                          ))}
+                      </select>
+                      <small className="field-hint">
+                        项目空间会注入项目说明、记忆、文件片段、默认 Skills 和 MCP 上下文。
+                      </small>
                     </label>
                     {selectedPresetFields.showRepoPath && (
                       <label>
@@ -1634,10 +2139,39 @@ export function App() {
                         aria-label="Skills"
                         value={skillNames}
                         placeholder="frontend-design, gsd-do, academic-paper-reviewer"
+                        list="skill-options"
                         onChange={(event) => setSkillNames(event.target.value)}
                       />
+                      <datalist id="skill-options">
+                        {skills.map((skill) => (
+                          <option key={skill.skill_id} value={skill.skill_id}>
+                            {skill.name}
+                          </option>
+                        ))}
+                      </datalist>
                       <small className="field-hint">
                         多个 Skill 用逗号或换行分隔；当前会随任务发送给后端并写入历史。
+                      </small>
+                    </label>
+                    <label className="full-width">
+                      <span>MCP Servers</span>
+                      <input
+                        type="text"
+                        aria-label="MCP Servers"
+                        value={mcpServerNames}
+                        placeholder="filesystem, github, browser"
+                        list="mcp-server-options"
+                        onChange={(event) => setMcpServerNames(event.target.value)}
+                      />
+                      <datalist id="mcp-server-options">
+                        {mcpServers.map((server) => (
+                          <option key={server.server_id} value={server.server_id}>
+                            {server.display_name}
+                          </option>
+                        ))}
+                      </datalist>
+                      <small className="field-hint">
+                        填入已注册 MCP server id；后端会读取 tools/list 并把工具目录注入任务上下文。
                       </small>
                     </label>
                     {selectedPresetFields.showGitHub && (
@@ -1733,7 +2267,14 @@ export function App() {
                   {attachments.map((attachment) => (
                     <span key={attachment.id} className="attachment-pill">
                       <span>{attachment.name}</span>
-                      <small>{formatAttachmentSize(attachment.size)}</small>
+                      <small>
+                        {formatAttachmentSize(attachment.size)}
+                        {attachment.parsedStatus ? ` / ${formatStatus(attachment.parsedStatus)}` : ""}
+                        {typeof attachment.chunkCount === "number"
+                          ? ` / ${attachment.chunkCount} 块`
+                          : ""}
+                        {attachment.uploadError ? " / 本地预览" : ""}
+                      </small>
                       <button
                         type="button"
                         aria-label={`移除 ${attachment.name}`}
@@ -1746,8 +2287,24 @@ export function App() {
                 </div>
               )}
 
-              {loadError && <div className="message error">{loadError}</div>}
-              {submitError && <div className="message error">{submitError}</div>}
+              {userModelOptions.length === 0 && (
+                <div className="setup-callout" role="status">
+                  <div>
+                    <strong>先接入一个模型</strong>
+                    <span>Mindforge 不再用内置假回答；需要先添加 Provider/API Key 和模型后才能发起任务。</span>
+                  </div>
+                  <button type="button" className="secondary-button" onClick={openModelSetup}>
+                    去模型中心
+                  </button>
+                </div>
+              )}
+              {isUploadingAttachments && (
+                <div className="message info" role="status" aria-live="polite">
+                  正在上传并解析文件...
+                </div>
+              )}
+              {loadError && <div className="message error" role="alert">{loadError}</div>}
+              {submitError && <div className="message error" role="alert">{submitError}</div>}
 
               <label className="sr-only" htmlFor="task-prompt">任务描述</label>
               <textarea
@@ -1813,6 +2370,25 @@ export function App() {
                       </button>
                     ))}
                   </div>
+                  <label className="composer-model-picker">
+                    <span>模型</span>
+                    <select
+                      aria-label="底部模型选择"
+                      value={effectiveModelId}
+                      onChange={(event) => setModelOverride(event.target.value)}
+                      disabled={userModelOptions.length === 0}
+                    >
+                      {userModelOptions.length === 0 ? (
+                        <option value="">请先添加模型</option>
+                      ) : (
+                        userModelOptions.map((model) => (
+                          <option key={model.model_id} value={model.model_id}>
+                            {model.display_name} / {model.provider_id}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </label>
                   <div className="composer-chip-row">
                     <span className="composer-chip">{selectedPresetName}</span>
                     <span className="composer-chip">{formatTaskType(taskType)}</span>
@@ -1820,6 +2396,9 @@ export function App() {
                     <span className="composer-chip">{selectedRuleTemplateName}</span>
                     {selectedSkills.length > 0 && (
                       <span className="composer-chip">{selectedSkills.length} 个 Skills</span>
+                    )}
+                    {selectedMcpServerIds.length > 0 && (
+                      <span className="composer-chip">{selectedMcpServerIds.length} 个 MCP</span>
                     )}
                     {attachments.length > 0 && (
                       <span className="composer-chip">{attachments.length} 个附件</span>
@@ -1830,10 +2409,16 @@ export function App() {
                 <button
                   type="button"
                   className="primary-button send-button"
-                  onClick={handleSubmit}
-                  disabled={isSubmitting}
+                  onClick={userModelOptions.length === 0 ? openModelSetup : handleSubmit}
+                  disabled={isSubmitting || isUploadingAttachments}
                 >
-                  {isSubmitting ? <><span className="spinner" />发送中...</> : "发送任务"}
+                  {isSubmitting
+                    ? <><span className="spinner" />发送中...</>
+                    : userModelOptions.length === 0
+                      ? "先添加模型"
+                      : isUploadingAttachments
+                        ? "解析文件中..."
+                        : "发送任务"}
                 </button>
               </div>
             </div>
@@ -1848,15 +2433,20 @@ export function App() {
                 {activeTaskDetail ? formatStatus(activeTaskDetail.status) : "空闲"}
               </span>
             </div>
-            <div className="tabs-row">
-              {(["output", "stages", "repo", "github", "academic", "approval", "canvas", "metadata"] as PanelTab[]).map((tab) => (
+            <div className="tabs-row" role="tablist" aria-label="任务详情面板">
+              {tabDescriptors.map(({ tab, count, hasData }) => (
                 <button
                   key={tab}
                   type="button"
-                  className={`tab-button ${activeTab === tab ? "active" : ""}`}
+                  role="tab"
+                  aria-selected={activeTab === tab}
+                  className={`tab-button ${activeTab === tab ? "active" : ""} ${
+                    hasData ? "has-data" : "empty"
+                  }`}
                   onClick={() => setActiveTab(tab)}
                 >
-                  {TAB_LABELS[tab]}
+                  <span>{TAB_LABELS[tab]}</span>
+                  {hasData && <small aria-hidden="true">{count}</small>}
                 </button>
               ))}
             </div>
@@ -1865,6 +2455,82 @@ export function App() {
               <div className="panel-content">
                 <h3>最终输出</h3>
                 <pre>{activeResult?.data.output || "暂无输出。"}</pre>
+                {activeExecutionReport?.steps?.length ? (
+                  <div className="execution-report-card">
+                    <div className="panel-title-row compact-row">
+                      <strong>执行报告</strong>
+                      <span className="subtle">
+                        {String(activeExecutionReport.runtime_boundary?.mcp_runtime || "catalog/proxy")}
+                      </span>
+                    </div>
+                    <div className="execution-step-grid">
+                      {activeExecutionReport.steps.map((step) => (
+                        <div key={String(step.id)} className="execution-step">
+                          <span>{String(step.label || step.id)}</span>
+                          <strong>{formatStatus(String(step.status || "unknown"))}</strong>
+                          <small>{String(step.summary || "")}</small>
+                        </div>
+                      ))}
+                    </div>
+                    {Array.isArray(activeExecutionReport.warnings) &&
+                      activeExecutionReport.warnings.length > 0 && (
+                        <div className="execution-warning-list">
+                          {activeExecutionReport.warnings.map((warning, index) => (
+                            <span key={`${String(warning)}-${index}`}>{String(warning)}</span>
+                          ))}
+                        </div>
+                      )}
+                  </div>
+                ) : null}
+                {generatedArtifacts.length > 0 && (
+                  <div className="generated-artifact-list">
+                    <strong>自动生成的文件</strong>
+                    {generatedArtifacts.map((artifact) => (
+                      <a
+                        key={artifact.artifact_id}
+                        className="generated-artifact-card"
+                        href={`${getApiBaseUrl()}${artifact.download_url.replace(/^\/api/, "")}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <span>{artifact.filename}</span>
+                        <small>
+                          {artifact.format.toUpperCase()} · {Math.max(1, Math.round(artifact.size_bytes / 1024))} KB
+                        </small>
+                      </a>
+                    ))}
+                  </div>
+                )}
+                <div className="export-row" aria-label="导出最终输出">
+                  {(["md", "pdf", "docx", "tex"] as ArtifactFormat[]).map((format) => (
+                    <button
+                      key={format}
+                      type="button"
+                      className="secondary-button export-button"
+                      disabled={exportingArtifactFormat === format}
+                      onClick={() => handleExportActiveOutput(format)}
+                    >
+                      {exportingArtifactFormat === format
+                        ? "导出中..."
+                        : `导出 ${format.toUpperCase()}`}
+                    </button>
+                  ))}
+                </div>
+                {artifacts.length > 0 && (
+                  <div className="artifact-link-row">
+                    <span>最近导出</span>
+                    {artifacts.slice(0, 3).map((artifact) => (
+                      <a
+                        key={artifact.artifact_id}
+                        href={`${getApiBaseUrl()}${artifact.download_url.replace(/^\/api/, "")}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {artifact.filename}
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -2094,20 +2760,764 @@ export function App() {
 
             {activeTab === "canvas" && (
               <div className="panel-content">
-                <h3>画布 / 代码执行</h3>
-                <div className="canvas-lite">
-                  <strong>Canvas-lite 已接入任务契约</strong>
+                <h3>画布 / 工具结果</h3>
+                <div className="canvas-panel">
+                  <strong>工具能力已接入执行链</strong>
                   <p>
-                    当你在输入框下方开启“画布”或“代码执行”时，Mindforge 会把请求写入
-                    <code>tool_flags</code>，后端历史也会保留。真实代码沙箱和可编辑画布会在后续阶段接入
-                    OpenHands runtime。
+                    深度分析会影响模型调用；联网会注入搜索结果；代码执行会运行显式 Python
+                    代码块；画布会把最终输出保存为可编辑 artifact。
                   </p>
-                  <pre>{JSON.stringify(activeTaskDetail?.metadata?.tool_flags || {}, null, 2)}</pre>
+                  <div className="canvas-status-grid">
+                    {COMPOSER_CAPABILITIES.map((capability) => (
+                      <span
+                        key={capability.key}
+                        className={`composer-chip ${
+                          activeToolFlags[capability.key] ? "active" : ""
+                        }`}
+                      >
+                        {capability.label}: {activeToolFlags[capability.key] ? "已启用" : "未启用"}
+                      </span>
+                    ))}
+                  </div>
+                  {Object.keys(activeToolContext).length > 0 && (
+                    <>
+                      <h4>工具上下文</h4>
+                      <pre>{JSON.stringify(activeToolContext, null, 2)}</pre>
+                    </>
+                  )}
+                  <h4>画布产物</h4>
+                  {canvasArtifacts.length === 0 ? (
+                    <p className="empty-hint">本任务没有生成画布产物。开启“画布”后重新发送即可生成。</p>
+                  ) : (
+                    <div className="canvas-artifact-list">
+                      {canvasArtifacts.map((artifact, index) => {
+                        const artifactId = String(artifact.artifact_id || index);
+                        const isSaving = savingCanvasArtifactId === artifactId;
+                        return (
+                          <article
+                            className="canvas-artifact-card"
+                            key={artifactId}
+                          >
+                            <div className="stage-head">
+                              <strong>{String(artifact.title || "未命名产物")}</strong>
+                              <span className="subtle">
+                                {String(artifact.kind || "artifact")}
+                                {artifact.editable ? " / 可编辑" : ""}
+                                {artifact.version ? ` / v${artifact.version}` : ""}
+                              </span>
+                            </div>
+                            {Array.isArray(artifact.versions) && artifact.versions.length > 0 && (
+                              <details className="canvas-version-list">
+                                <summary>版本历史（{artifact.versions.length}）</summary>
+                                {artifact.versions
+                                  .slice()
+                                  .reverse()
+                                  .slice(0, 8)
+                                  .map((version) => (
+                                    <div
+                                      key={`${artifactId}-${version.version}`}
+                                      className="canvas-version-item"
+                                    >
+                                      <strong>v{version.version}</strong>
+                                      <span>{version.updated_at ? formatDate(version.updated_at) : "-"}</span>
+                                      <small>{version.source || "manual"}</small>
+                                    </div>
+                                  ))}
+                              </details>
+                            )}
+                            {artifact.editable ? (
+                              <>
+                                <textarea
+                                  className="canvas-editor"
+                                  aria-label={`${artifact.title || "画布产物"} 内容`}
+                                  value={getCanvasDraft(artifact)}
+                                  onChange={(event) =>
+                                    setCanvasDrafts((current) => ({
+                                      ...current,
+                                      [artifactId]: event.target.value,
+                                    }))
+                                  }
+                                />
+                                <div className="action-row">
+                                  <button
+                                    type="button"
+                                    className="secondary-button"
+                                    disabled={isSaving}
+                                    onClick={() => handleSaveCanvasArtifact(artifact)}
+                                  >
+                                    {isSaving ? "保存中..." : "保存画布"}
+                                  </button>
+                                </div>
+                              </>
+                            ) : (
+                              <pre>{artifactContentToText(artifact.content)}</pre>
+                            )}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
           </div>
         </aside>
+      </div>
+    );
+  }
+
+  function renderProjectCenter() {
+    return (
+      <div className="settings-shell tool-center-shell">
+        {settingsMessage && <div className="message success">{settingsMessage}</div>}
+        {settingsError && <div className="message error">{settingsError}</div>}
+
+        <div className="panel settings-panel">
+          <div className="panel-title-row">
+            <h2>项目空间</h2>
+            <span className="subtle">
+              像 ChatGPT Projects / Claude Projects 一样管理长期上下文。
+            </span>
+          </div>
+          <div className="tool-center-grid">
+            <section className="settings-card tool-editor-card">
+              <div className="stage-head">
+                <strong>创建项目空间</strong>
+                <span>说明、记忆、文件和工具</span>
+              </div>
+              <label>
+                <span>Project ID</span>
+                <input
+                  type="text"
+                  value={newProjectSpace.project_id}
+                  placeholder="mindforge-dev"
+                  onChange={(event) =>
+                    setNewProjectSpace((current) => ({
+                      ...current,
+                      project_id: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>项目名称</span>
+                <input
+                  type="text"
+                  value={newProjectSpace.display_name}
+                  placeholder="Mindforge 开发"
+                  onChange={(event) =>
+                    setNewProjectSpace((current) => ({
+                      ...current,
+                      display_name: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="full-width">
+                <span>项目说明</span>
+                <textarea
+                  value={newProjectSpace.description}
+                  placeholder="这个项目是什么，目标用户是谁。"
+                  onChange={(event) =>
+                    setNewProjectSpace((current) => ({
+                      ...current,
+                      description: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="full-width">
+                <span>项目指令</span>
+                <textarea
+                  value={newProjectSpace.instructions}
+                  placeholder="长期生效的工作规则、代码风格、产品原则。"
+                  onChange={(event) =>
+                    setNewProjectSpace((current) => ({
+                      ...current,
+                      instructions: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="full-width">
+                <span>项目记忆</span>
+                <textarea
+                  value={newProjectSpace.memory}
+                  placeholder="关键决策、用户偏好、长期上下文。"
+                  onChange={(event) =>
+                    setNewProjectSpace((current) => ({
+                      ...current,
+                      memory: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>默认预设</span>
+                <input
+                  type="text"
+                  value={newProjectSpace.default_preset_mode}
+                  placeholder="code-engineering"
+                  onChange={(event) =>
+                    setNewProjectSpace((current) => ({
+                      ...current,
+                      default_preset_mode: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>仓库路径</span>
+                <input
+                  type="text"
+                  value={newProjectSpace.repo_path}
+                  placeholder="E:\\CODE\\agent助手"
+                  onChange={(event) =>
+                    setNewProjectSpace((current) => ({
+                      ...current,
+                      repo_path: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>GitHub 仓库</span>
+                <input
+                  type="text"
+                  value={newProjectSpace.github_repo}
+                  placeholder="owner/repo"
+                  onChange={(event) =>
+                    setNewProjectSpace((current) => ({
+                      ...current,
+                      github_repo: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>Skills</span>
+                <input
+                  type="text"
+                  value={newProjectSpace.skill_ids}
+                  placeholder="frontend-design, gsd-do"
+                  onChange={(event) =>
+                    setNewProjectSpace((current) => ({
+                      ...current,
+                      skill_ids: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>MCP Servers</span>
+                <input
+                  type="text"
+                  value={newProjectSpace.mcp_server_ids}
+                  placeholder="filesystem, browser"
+                  onChange={(event) =>
+                    setNewProjectSpace((current) => ({
+                      ...current,
+                      mcp_server_ids: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>文件 ID</span>
+                <input
+                  type="text"
+                  value={newProjectSpace.file_ids}
+                  placeholder="上传文件后填 file_id"
+                  onChange={(event) =>
+                    setNewProjectSpace((current) => ({
+                      ...current,
+                      file_ids: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>标签</span>
+                <input
+                  type="text"
+                  value={newProjectSpace.tags}
+                  placeholder="研发, 论文, 客户A"
+                  onChange={(event) =>
+                    setNewProjectSpace((current) => ({
+                      ...current,
+                      tags: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="toggle-row">
+                <span>启用</span>
+                <input
+                  type="checkbox"
+                  checked={newProjectSpace.enabled}
+                  onChange={(event) =>
+                    setNewProjectSpace((current) => ({
+                      ...current,
+                      enabled: event.target.checked,
+                    }))
+                  }
+                />
+              </label>
+              <button type="button" className="primary-button" onClick={handleSaveProjectSpace}>
+                保存项目空间
+              </button>
+            </section>
+
+            <section className="settings-card">
+              <div className="stage-head">
+                <strong>如何使用</strong>
+                <span>任务配置里选择</span>
+              </div>
+              <p>
+                项目空间会在每次任务中注入项目说明、长期记忆、默认仓库、GitHub 仓库、
+                Skills、MCP Server 和项目文件片段。它是后续跨会话记忆/RAG 的基础。
+              </p>
+              <div className="provider-list inline-pills">
+                <span className="pill accent">{projectSpaces.length} 个项目</span>
+                <span className="pill">{projectSpaces.filter((item) => item.enabled).length} 个启用</span>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div className="panel settings-panel">
+          <div className="panel-title-row">
+            <h2>项目列表</h2>
+            <span className="subtle">{projectSpaces.length} 个空间</span>
+          </div>
+          <div className="settings-grid">
+            {projectSpaces.length === 0 ? (
+              <div className="empty-hint">还没有项目空间。先创建一个，再在任务配置中选择。</div>
+            ) : (
+              projectSpaces.map((project) => (
+                <article className="settings-card" key={project.project_id}>
+                  <div className="stage-head">
+                    <strong>{project.display_name}</strong>
+                    <span className={`pill ${project.enabled ? "accent" : "muted"}`}>
+                      {project.enabled ? "启用" : "禁用"}
+                    </span>
+                  </div>
+                  <code>{project.project_id}</code>
+                  <p>{project.description || "暂无说明。"}</p>
+                  <div className="provider-list inline-pills">
+                    <span className="pill">{project.file_count} 个文件</span>
+                    <span className="pill">{project.skill_ids.length} 个 Skill</span>
+                    <span className="pill">{project.mcp_server_ids.length} 个 MCP</span>
+                  </div>
+                  {project.instructions && <p className="subtle">指令：{project.instructions}</p>}
+                  {project.memory && <p className="subtle">记忆：{project.memory}</p>}
+                  <div className="action-row">
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => {
+                        setSelectedProjectId(project.project_id);
+                        setView("workspace");
+                        setActiveNavId("new-task");
+                        setIsTaskConfigOpen(true);
+                      }}
+                    >
+                      用于新任务
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button danger-button"
+                      onClick={() => void handleDeleteProjectSpace(project)}
+                    >
+                      删除
+                    </button>
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderToolCenter() {
+    return (
+      <div className="settings-shell tool-center-shell">
+        {settingsMessage && <div className="message success">{settingsMessage}</div>}
+        {settingsError && <div className="message error">{settingsError}</div>}
+
+        <div className="panel settings-panel">
+          <div className="panel-title-row">
+            <h2>工具与 Skills 中心</h2>
+            <span className="subtle">MCP、Skills 和文档能力</span>
+          </div>
+          <div className="tool-center-grid">
+            <section className="settings-card tool-editor-card">
+              <div className="stage-head">
+                <strong>添加 MCP Server</strong>
+                <span>HTTP JSON-RPC</span>
+              </div>
+              <label>
+                <span>Server ID</span>
+                <input
+                  type="text"
+                  value={newMcpServer.server_id}
+                  placeholder="filesystem"
+                  onChange={(event) =>
+                    setNewMcpServer((current) => ({
+                      ...current,
+                      server_id: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>显示名称</span>
+                <input
+                  type="text"
+                  value={newMcpServer.display_name}
+                  placeholder="本地文件系统"
+                  onChange={(event) =>
+                    setNewMcpServer((current) => ({
+                      ...current,
+                      display_name: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>传输方式</span>
+                <select
+                  value={newMcpServer.transport}
+                  onChange={(event) =>
+                    setNewMcpServer((current) => ({
+                      ...current,
+                      transport: event.target.value as "http-jsonrpc" | "stdio",
+                    }))
+                  }
+                >
+                  <option value="http-jsonrpc">HTTP JSON-RPC</option>
+                  <option value="stdio">stdio 进程</option>
+                </select>
+              </label>
+              <label>
+                <span>Endpoint URL</span>
+                <input
+                  type="text"
+                  value={newMcpServer.endpoint_url}
+                  placeholder="http://127.0.0.1:8765/mcp"
+                  onChange={(event) =>
+                    setNewMcpServer((current) => ({
+                      ...current,
+                      endpoint_url: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>stdio 命令</span>
+                <input
+                  type="text"
+                  value={newMcpServer.command}
+                  placeholder="node / python / uvx"
+                  onChange={(event) =>
+                    setNewMcpServer((current) => ({
+                      ...current,
+                      command: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>stdio 参数</span>
+                <input
+                  type="text"
+                  value={newMcpServer.args}
+                  placeholder="server.js, --stdio"
+                  onChange={(event) =>
+                    setNewMcpServer((current) => ({
+                      ...current,
+                      args: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>工作目录</span>
+                <input
+                  type="text"
+                  value={newMcpServer.working_directory}
+                  placeholder="可选"
+                  onChange={(event) =>
+                    setNewMcpServer((current) => ({
+                      ...current,
+                      working_directory: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>Headers JSON</span>
+                <textarea
+                  className="json-textarea"
+                  value={newMcpServer.headers_json}
+                  placeholder='{"Authorization":"Bearer ..."}'
+                  onChange={(event) =>
+                    setNewMcpServer((current) => ({
+                      ...current,
+                      headers_json: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>Env JSON</span>
+                <textarea
+                  className="json-textarea"
+                  value={newMcpServer.env_json}
+                  placeholder='{"TOKEN":"..."}'
+                  onChange={(event) =>
+                    setNewMcpServer((current) => ({
+                      ...current,
+                      env_json: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>允许工具</span>
+                <input
+                  type="text"
+                  value={newMcpServer.allowed_tools}
+                  placeholder="read_file, search"
+                  onChange={(event) =>
+                    setNewMcpServer((current) => ({
+                      ...current,
+                      allowed_tools: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>禁用工具</span>
+                <input
+                  type="text"
+                  value={newMcpServer.blocked_tools}
+                  placeholder="delete_file, shell"
+                  onChange={(event) =>
+                    setNewMcpServer((current) => ({
+                      ...current,
+                      blocked_tools: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="toggle-row">
+                <span>调用工具前需要审批</span>
+                <input
+                  type="checkbox"
+                  checked={newMcpServer.tool_call_requires_approval}
+                  onChange={(event) =>
+                    setNewMcpServer((current) => ({
+                      ...current,
+                      tool_call_requires_approval: event.target.checked,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>备注</span>
+                <input
+                  type="text"
+                  value={newMcpServer.notes}
+                  placeholder="这个 MCP 提供哪些工具"
+                  onChange={(event) =>
+                    setNewMcpServer((current) => ({
+                      ...current,
+                      notes: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="toggle-row">
+                <span>启用</span>
+                <input
+                  type="checkbox"
+                  checked={newMcpServer.enabled}
+                  onChange={(event) =>
+                    setNewMcpServer((current) => ({
+                      ...current,
+                      enabled: event.target.checked,
+                    }))
+                  }
+                />
+              </label>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={handleSaveMcpServer}
+              >
+                保存 MCP Server
+              </button>
+            </section>
+
+            <section className="settings-card">
+              <div className="stage-head">
+                <strong>Skills 目录</strong>
+                <span>{skills.length} 个</span>
+              </div>
+              <p className="subtle">
+                Mindforge 会扫描本机 SKILL.md，并在你选择 Skills 时把对应说明注入模型上下文。
+              </p>
+              <div className="skill-list compact-list">
+                {skills.length === 0 ? (
+                  <div className="empty-hint">未发现 Skills。请检查后端 skill_roots 配置。</div>
+                ) : (
+                  skills.slice(0, 12).map((skill) => (
+                    <article key={skill.skill_id} className="skill-card">
+                      <div className="stage-head">
+                        <strong>{skill.name}</strong>
+                        <span className={`pill ${skill.enabled ? "accent" : "muted"}`}>
+                          {skill.enabled ? "启用" : "禁用"} / {skill.trust_level}
+                        </span>
+                      </div>
+                      <code>{skill.skill_id}</code>
+                      <p>{skill.description || "暂无描述。"}</p>
+                      {skill.notes && <p className="subtle">{skill.notes}</p>}
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => void handleToggleSkill(skill)}
+                      >
+                        {skill.enabled ? "禁用 Skill" : "启用 Skill"}
+                      </button>
+                    </article>
+                  ))
+                )}
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div className="panel settings-panel">
+          <div className="panel-title-row">
+            <h2>MCP Server 列表</h2>
+            <span className="subtle">{mcpServers.length} 个已配置</span>
+          </div>
+          <div className="settings-grid">
+            {mcpServers.length === 0 ? (
+              <div className="empty-hint">
+                还没有 MCP Server。添加后可在任务配置中选择并注入工具目录。
+              </div>
+            ) : (
+              mcpServers.map((server) => {
+                const toolResult = mcpToolResults[server.server_id];
+                const loadingTools = loadingMcpToolsServerId === server.server_id;
+                return (
+                  <article key={server.server_id} className="settings-card">
+                    <div className="stage-head">
+                      <strong>{server.display_name}</strong>
+                      <div className="provider-list inline-pills">
+                        <span className={`pill ${server.enabled ? "accent" : "muted"}`}>
+                          {server.enabled ? "启用" : "禁用"}
+                        </span>
+                        {server.headers_configured && (
+                          <span className="pill muted">Headers 已脱敏</span>
+                        )}
+                        {server.env_configured && (
+                          <span className="pill muted">Env 已脱敏</span>
+                        )}
+                        {server.tool_call_requires_approval !== false && (
+                          <span className="pill muted">调用需审批</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="subtle">
+                      {server.transport === "stdio"
+                        ? `stdio: ${server.command || "未配置命令"}`
+                        : server.endpoint_url}
+                    </div>
+                    {(server.allowed_tools?.length || server.blocked_tools?.length) ? (
+                      <div className="provider-list inline-pills">
+                        {server.allowed_tools?.length ? (
+                          <span className="pill">允许 {server.allowed_tools.length}</span>
+                        ) : null}
+                        {server.blocked_tools?.length ? (
+                          <span className="pill muted">禁用 {server.blocked_tools.length}</span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {server.notes && <p>{server.notes}</p>}
+                    <div className="action-row">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={loadingTools}
+                        onClick={() => handleLoadMcpTools(server)}
+                      >
+                        {loadingTools ? "读取中..." : "读取工具目录"}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button danger-button"
+                        onClick={() => handleDeleteMcpServer(server)}
+                      >
+                        删除
+                      </button>
+                    </div>
+                    {toolResult && (
+                      <div className="mcp-tool-list">
+                        <strong>状态：{toolResult.status}</strong>
+                        {toolResult.error_message && (
+                          <p className="message error">{toolResult.error_message}</p>
+                        )}
+                        {toolResult.tools.map((tool) => (
+                          <div key={tool.name} className="mcp-tool-item">
+                            <code>{tool.name}</code>
+                            <span>{tool.description || "暂无描述"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="panel settings-panel">
+          <div className="panel-title-row">
+            <h2>MCP 调用审计</h2>
+            <span className="subtle">{mcpAuditRecords.length} 条最近记录</span>
+          </div>
+          {mcpAuditRecords.length === 0 ? (
+            <div className="empty-hint">
+              暂无工具调用记录。直接调用 `/api/mcp/servers/:id/tools/call` 或后续自动工具执行都会写入这里。
+            </div>
+          ) : (
+            <div className="mcp-audit-list">
+              {mcpAuditRecords.slice(0, 12).map((record) => (
+                <article key={record.audit_id} className="mcp-audit-item">
+                  <div className="stage-head">
+                    <strong>{record.tool_name}</strong>
+                    <span className={`pill ${record.status === "ok" ? "accent" : "muted"}`}>
+                      {formatStatus(record.status)}
+                    </span>
+                  </div>
+                  <small>
+                    {record.server_id} · {record.approved ? "已审批" : "未审批"} ·{" "}
+                    {formatDate(record.created_at)}
+                  </small>
+                  {record.blocked_reason && <p>{record.blocked_reason}</p>}
+                  {record.error_message && <p className="message error">{record.error_message}</p>}
+                  {record.arguments_preview && <code>{record.arguments_preview}</code>}
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -3163,12 +4573,18 @@ export function App() {
                     </button>
                     <button
                       type="button"
-                      className="history-delete"
+                      className={`history-delete ${
+                        confirmingDeleteKey === deleteKey ? "confirming" : ""
+                      }`}
                       aria-label={`删除对话 ${formatTitle(task.prompt)}`}
                       disabled={deletingConversationKey === deleteKey}
                       onClick={() => void handleDeleteHistoryItem(task)}
                     >
-                      {deletingConversationKey === deleteKey ? "..." : "×"}
+                      {deletingConversationKey === deleteKey
+                        ? "..."
+                        : confirmingDeleteKey === deleteKey
+                          ? "确认"
+                          : "×"}
                     </button>
                   </div>
                 );
@@ -3216,11 +4632,14 @@ export function App() {
             <span className="pill">{customModels.length} 个模型</span>
             <span className="pill">{providers.length} 个模型服务商</span>
             <span className="pill">{ruleTemplates.length} 个模板</span>
+            <span className="pill">{projectSpaces.length} 个项目空间</span>
             <span className="pill">{conversationHistoryItems.length} 个最近对话</span>
           </div>
         </header>
 
         {view === "workspace" && renderWorkspace()}
+        {view === "projects" && renderProjectCenter()}
+        {view === "tools" && renderToolCenter()}
         {view === "models" && renderModelControlV2()}
         {view === "rules" && renderRuleTemplates()}
       </main>

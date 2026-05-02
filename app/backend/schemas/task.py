@@ -15,6 +15,11 @@ class TaskAttachment(BaseModel):
         validation_alias=AliasChoices("id", "attachment_id", "attachmentId"),
         description="Optional client-side attachment identifier.",
     )
+    file_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("file_id", "fileId"),
+        description="Optional uploaded file id produced by the file parsing API.",
+    )
     name: str | None = Field(
         default=None,
         validation_alias=AliasChoices("name", "filename", "file_name", "fileName"),
@@ -45,6 +50,17 @@ class TaskAttachment(BaseModel):
             "preview",
         ),
         description="Short text excerpt extracted from the attachment.",
+    )
+    parsed_status: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("parsed_status", "parsedStatus"),
+        description="Parser status returned by the file upload pipeline.",
+    )
+    chunk_count: int | None = Field(
+        default=None,
+        ge=0,
+        validation_alias=AliasChoices("chunk_count", "chunkCount"),
+        description="Number of parsed retrieval chunks available for this file.",
     )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
@@ -123,6 +139,11 @@ class TaskRequest(BaseModel):
         default=None,
         description="Optional explicit rule template selection for dynamic role assignment.",
     )
+    project_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("project_id", "projectId"),
+        description="Optional project space id used for shared instructions, memory, and files.",
+    )
     role_model_overrides: dict[str, str] = Field(
         default_factory=dict,
         description="Optional role-to-model overrides for multi-stage execution.",
@@ -140,6 +161,11 @@ class TaskRequest(BaseModel):
     skills: list[str] = Field(
         default_factory=list,
         description="Optional skill identifiers or paths the runtime should consider for this task.",
+    )
+    mcp_server_ids: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("mcp_server_ids", "mcpServerIds"),
+        description="Optional MCP server ids whose tools should be exposed as task context.",
     )
     github_repo: str | None = Field(
         default=None,

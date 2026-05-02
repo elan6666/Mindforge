@@ -103,6 +103,14 @@ class ModelRegistryService:
                 enabled_models.append(model)
         return enabled_models
 
+    def iter_enabled_custom_models(self) -> list[ModelDefinition]:
+        """Return enabled user-created models only."""
+        return [
+            model
+            for model in self.iter_enabled_models()
+            if model.model_id in self._custom_model_ids
+        ]
+
     def _build_catalog(self) -> ModelCatalog:
         """Load the seed catalog and layer mutable local overrides on top."""
         catalog = load_model_catalog()
