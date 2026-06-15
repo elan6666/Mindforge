@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>Mindforge Variant - Frontend Design</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,650;9..144,760&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+
+      :root {
+        color-scheme: light;
+        --ink: #14110f;
+        --ink-soft: #49433e;
+        --muted: #746e68;
+        --line: #ded7cf;
+        --paper: #f7f3ed;
+        --panel: #fffaf2;
+        --panel-2: #ebe5dc;
+        --blue: #174cff;
+        --blue-ink: #092071;
+        --vermillion: #db4a2b;
+        --green: #1e8a64;
+        --shadow: 0 18px 44px rgba(42, 33, 25, 0.12);
+        --radius: 10px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        background:
+          linear-gradient(90deg, rgba(20, 17, 15, 0.045) 1px, transparent 1px) 0 0 / 32px 32px,
+          linear-gradient(180deg, #fbf8f2 0%, var(--paper) 58%, #eee7dc 100%);
+        font-family: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", sans-serif;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      .app {
+        display: grid;
+        grid-template-columns: 248px minmax(0, 1fr) 328px;
+        min-height: 100vh;
+      }
+
+      .rail {
+        padding: 24px 18px;
+        border-right: 1px solid var(--line);
+        background: rgba(255, 250, 242, 0.78);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 30px;
+      }
+
+      .mark {
+        width: 36px;
+        height: 36px;
+        border: 2px solid var(--ink);
+        border-radius: 9px;
+        display: grid;
+        place-items: center;
+        font-family: "Fraunces", serif;
+        font-weight: 760;
+        box-shadow: 4px 4px 0 var(--ink);
+      }
+
+      .brand strong {
+        display: block;
+        font-size: 1.08rem;
+      }
+
+      .brand span {
+        display: block;
+        color: var(--muted);
+        font-size: 0.78rem;
+      }
+
+      .group {
+        margin: 22px 0;
+      }
+
+      .group-label {
+        margin: 0 0 10px;
+        color: var(--muted);
+        font-size: 0.72rem;
+        font-weight: 700;
+      }
+
+      .nav-item {
+        width: 100%;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        padding: 10px 11px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        color: var(--ink-soft);
+        text-align: left;
+      }
+
+      .nav-item:hover,
+      .nav-item.active {
+        background: var(--ink);
+        color: var(--panel);
+      }
+
+      .nav-item small {
+        color: inherit;
+        opacity: 0.7;
+      }
+
+      main {
+        padding: 28px 32px 34px;
+        overflow: hidden;
+      }
+
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 30px;
+      }
+
+      .crumb {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .primary-action {
+        border: 2px solid var(--ink);
+        border-radius: 9px;
+        background: var(--blue);
+        color: #fff;
+        padding: 12px 18px;
+        font-weight: 700;
+        box-shadow: 5px 5px 0 var(--ink);
+        transition: transform 180ms ease, box-shadow 180ms ease;
+      }
+
+      .primary-action:hover {
+        transform: translate(2px, 2px);
+        box-shadow: 3px 3px 0 var(--ink);
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
+        gap: 24px;
+        align-items: end;
+        margin-bottom: 24px;
+      }
+
+      h1 {
+        font-family: "Fraunces", serif;
+        font-size: 4.8rem;
+        line-height: 0.92;
+        letter-spacing: -0.03em;
+        margin: 0 0 18px;
+        max-width: 760px;
+      }
+
+      .lead {
+        color: var(--ink-soft);
+        font-size: 1.08rem;
+        line-height: 1.7;
+        max-width: 660px;
+      }
+
+      .dossier {
+        border: 2px solid var(--ink);
+        border-radius: var(--radius);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .dossier-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .badge {
+        border: 1px solid currentColor;
+        border-radius: 999px;
+        padding: 5px 9px;
+        color: var(--blue-ink);
+        background: #eef2ff;
+        font-size: 0.76rem;
+        font-weight: 700;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 142px;
+        border: 0;
+        resize: vertical;
+        padding: 18px;
+        background: transparent;
+        color: var(--ink);
+        outline: none;
+      }
+
+      .dossier-tools {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding: 14px 16px;
+        border-top: 1px solid var(--line);
+      }
+
+      .tool-chip {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #fffdf8;
+        padding: 8px 12px;
+        color: var(--ink-soft);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 24px;
+      }
+
+      .surface {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: rgba(255, 250, 242, 0.82);
+      }
+
+      .surface h2 {
+        margin: 0;
+        padding: 18px 18px 4px;
+        font-size: 1rem;
+      }
+
+      .stage-row,
+      .agent-row,
+      .artifact-row {
+        display: grid;
+        gap: 12px;
+        align-items: center;
+        padding: 14px 18px;
+        border-top: 1px solid var(--line);
+      }
+
+      .stage-row {
+        grid-template-columns: 42px 1fr auto;
+      }
+
+      .agent-row {
+        grid-template-columns: 46px 1fr auto;
+      }
+
+      .artifact-row {
+        grid-template-columns: 1fr auto;
+      }
+
+      .number {
+        width: 30px;
+        height: 30px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--ink);
+        border-radius: 8px;
+        font-weight: 700;
+        background: var(--panel);
+      }
+
+      .stage-row.active .number {
+        background: var(--blue);
+        color: #fff;
+      }
+
+      .meta {
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+
+      .avatar {
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        background: var(--ink);
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font-weight: 700;
+      }
+
+      aside {
+        padding: 24px 18px;
+        border-left: 1px solid var(--line);
+        background: rgba(235, 229, 220, 0.55);
+      }
+
+      .right-stack {
+        display: grid;
+        gap: 16px;
+      }
+
+      .score {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 14px;
+        align-items: center;
+        padding: 16px;
+      }
+
+      .score strong {
+        font-family: "Fraunces", serif;
+        font-size: 3.2rem;
+        line-height: 1;
+      }
+
+      .meter {
+        height: 8px;
+        border-radius: 999px;
+        background: var(--panel-2);
+        overflow: hidden;
+      }
+
+      .meter span {
+        display: block;
+        height: 100%;
+        width: 88%;
+        background: var(--green);
+      }
+
+      @media (max-width: 1120px) {
+        .app {
+          grid-template-columns: 220px 1fr;
+        }
+
+        aside {
+          display: none;
+        }
+      }
+
+      @media (max-width: 780px) {
+        .app,
+        .hero,
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .rail {
+          position: static;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        h1 {
+          font-size: 3.1rem;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <nav class="rail" aria-label="Mindforge navigation">
+        <div class="brand"><div class="mark">M</div><div><strong>Mindforge</strong><span>Artifact Observatory</span></div></div>
+        <section class="group">
+          <p class="group-label">FORGE 工作流</p>
+          <button class="nav-item active">Code Forge <small>代码工程</small></button>
+          <button class="nav-item">Doc Forge <small>文档锻造</small></button>
+          <button class="nav-item">Research Forge <small>深度研究</small></button>
+          <button class="nav-item">Site Forge <small>网页前端</small></button>
+          <button class="nav-item">Data Forge <small>表格数据</small></button>
+        </section>
+        <section class="group">
+          <p class="group-label">TEAM 编排</p>
+          <button class="nav-item">Agent War Room <small>4 active</small></button>
+          <button class="nav-item">Model Arena <small>3 models</small></button>
+          <button class="nav-item">Skills / MCP <small>12 tools</small></button>
+        </section>
+        <section class="group">
+          <p class="group-label">ASSETS 沉淀</p>
+          <button class="nav-item">Artifact Library <small>128</small></button>
+          <button class="nav-item">Project Memory <small>live</small></button>
+        </section>
+      </nav>
+      <main>
+        <div class="topbar"><div class="crumb">Code Forge / 修复与审查 / TASK-0613</div><button class="primary-action">Run War Room</button></div>
+        <section class="hero">
+          <div>
+            <h1>把任务交给一支可审计的 AI 团队。</h1>
+            <p class="lead">Mindforge 把代码、文档、研究、模型和产物串成一条可追踪工作流。你看到的不只是回答，而是角色分工、证据来源、审批节点和最终资产。</p>
+          </div>
+          <div class="dossier">
+            <div class="dossier-head"><strong>任务输入</strong><span class="badge">Code Forge</span></div>
+            <textarea>修复登录后偶发的 500 错误，并补充相关单元测试。需要留下错误日志、相关代码、测试结果和风险说明。</textarea>
+            <div class="dossier-tools"><button class="tool-chip">repo mindforge-main</button><button class="tool-chip">DeepSeek V4 Flash</button><button class="tool-chip">approval on</button></div>
+          </div>
+        </section>
+        <section class="grid">
+          <div class="surface">
+            <h2>Workflow Stages</h2>
+            <div class="stage-row active"><div class="number">1</div><div><strong>需求拆解</strong><div class="meta">PM 正在界定复现路径与影响面</div></div><span class="badge">running</span></div>
+            <div class="stage-row"><div class="number">2</div><div><strong>方案设计</strong><div class="meta">Backend / Frontend 并行分析</div></div><span class="meta">queued</span></div>
+            <div class="stage-row"><div class="number">3</div><div><strong>代码实现</strong><div class="meta">生成 patch 与测试用例</div></div><span class="meta">queued</span></div>
+            <div class="stage-row"><div class="number">4</div><div><strong>审查交付</strong><div class="meta">Reviewer 合并证据与风险</div></div><span class="meta">queued</span></div>
+          </div>
+          <div class="surface">
+            <h2>Agent War Room</h2>
+            <div class="agent-row"><div class="avatar">PM</div><div><strong>Project Manager</strong><div class="meta">已拆解 6 个子任务</div></div><span class="badge">active</span></div>
+            <div class="agent-row"><div class="avatar">BE</div><div><strong>Backend Agent</strong><div class="meta">定位 auth service 与日志入口</div></div><span class="meta">10:24</span></div>
+            <div class="agent-row"><div class="avatar">FE</div><div><strong>Frontend Agent</strong><div class="meta">检查登录状态回写路径</div></div><span class="meta">10:23</span></div>
+            <div class="agent-row"><div class="avatar">RV</div><div><strong>Reviewer</strong><div class="meta">等待 patch 后审查</div></div><span class="meta">hold</span></div>
+          </div>
+        </section>
+      </main>
+      <aside>
+        <div class="right-stack">
+          <div class="surface"><h2>Model Arena</h2><div class="score"><strong>88</strong><div><b>deepseek-v4-flash</b><div class="meta">质量 / 速度 / 成本综合</div><div class="meter"><span></span></div></div></div></div>
+          <div class="surface"><h2>Artifact Library</h2><div class="artifact-row"><span>fix-plan.md</span><span class="meta">v1.2</span></div><div class="artifact-row"><span>patch.diff</span><span class="meta">v1.1</span></div><div class="artifact-row"><span>risk-review.md</span><span class="meta">v1.0</span></div></div>
+        </div>
+      </aside>
+    </div>
+    <script>
+      document.querySelectorAll(".nav-item").forEach((item) => {
+        item.addEventListener("click", () => {
+          document.querySelectorAll(".nav-item").forEach((node) => node.classList.remove("active"));
+          item.classList.add("active");
+        });
+      });
+    </script>
+  </body>
+</html>

@@ -15,4 +15,3 @@ def configure_logging(level: str = "INFO") -> None:
 def get_logger(name: str) -> Logger:
     """Return a namespaced logger."""
     return logging.getLogger(name)
-

@@ -9,6 +9,8 @@ import type {
   MCPServerUpsert,
   MCPToolAuditRecord,
   MCPToolListResult,
+  LoopDefinition,
+  LoopMarkdownExport,
   ModelCreateRequest,
   ModelControlUpdate,
   ModelSummary,
@@ -312,11 +314,57 @@ export function exportArtifact(payload: {
   content: string;
   format: ArtifactFormat;
   source_task_id?: string | null;
+  loop_id?: string | null;
+  loop_name?: string | null;
+  provenance?: Record<string, unknown>;
 }): Promise<ArtifactSummary> {
   return requestJson<ArtifactSummary>("/artifacts/export", {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function fetchLoops(): Promise<LoopDefinition[]> {
+  return requestJson<LoopDefinition[]>("/loops");
+}
+
+export function importLoopMarkdown(content: string): Promise<LoopDefinition> {
+  return requestJson<LoopDefinition>("/loops/import", {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export function exportLoopMarkdown(loopId: string): Promise<LoopMarkdownExport> {
+  return requestJson<LoopMarkdownExport>(
+    `/loops/${encodeURIComponent(loopId)}/markdown`,
+  );
+}
+
+export function improveLoop(
+  loopId: string,
+  payload: { task_id?: string | null; note?: string | null },
+): Promise<LoopDefinition> {
+  return requestJson<LoopDefinition>(`/loops/${encodeURIComponent(loopId)}/improve`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function retryLoopStage(
+  taskId: string,
+  stageId: string,
+  payload: { model_override?: string | null; note?: string | null } = {},
+): Promise<TaskHistoryDetail> {
+  return requestJson<TaskHistoryDetail>(
+    `/tasks/${encodeURIComponent(taskId)}/loops/stages/${encodeURIComponent(
+      stageId,
+    )}/retry`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
 export function approveTask(taskId: string, comment?: string): Promise<TaskResult> {
@@ -367,6 +415,7 @@ export function submitTask(payload: {
   task_type?: string | null;
   model_override?: string | null;
   rule_template_id?: string | null;
+  loop_id?: string | null;
   project_id?: string | null;
   github_repo?: string | null;
   github_issue_number?: number | null;

@@ -1,11 +1,22 @@
 __pycache__/
 *.py[cod]
+.venv/
 .pytest_cache/
+node_modules/
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
 frontend/*.js
 frontend/*.d.ts
+mindforge.egg-info/
+
+# Environment files can contain API keys.
+.env
+.env.*
+!.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
 app/data/*.db
 app/data/files/
 app/data/artifacts/
@@ -26,10 +37,12 @@ app/model_control/*_local.json
 .planning/workspaces/
 .planning/local/
 .playwright-cli/
+.impeccable/
 *.local.md
 *.draft.md
 
 output/
+outputs/
 tmp/
 
 .DS_Store

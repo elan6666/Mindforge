@@ -1,0 +1,16 @@
+.byte-os
+.playwright-cli
+.pytest_cache
+.venv
+node_modules
+frontend/node_modules
+frontend/dist
+outputs
+output
+tmp
+app/data/*.db
+app/data/files
+app/data/artifacts
+app/model_control/provider_secrets.json
+.env
+.env.*

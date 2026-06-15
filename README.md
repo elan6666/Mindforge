@@ -40,7 +40,7 @@ npm run dev
 
 Open:
 
-- Frontend: `http://127.0.0.1:5173`
+- Frontend: `http://127.0.0.1:5174`
 - Backend API docs: `http://127.0.0.1:8000/docs`
 - Health check: `http://127.0.0.1:8000/api/health`
 

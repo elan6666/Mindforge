@@ -27,4 +27,3 @@ class PresetSummary(BaseModel):
     description: str
     requires_repo_analysis: bool
     requires_approval: bool
-

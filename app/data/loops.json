@@ -1,0 +1,280 @@
+{
+  "loops": {
+    "code-review-loop": {
+      "loop_id": "code-review-loop",
+      "name": "Code Review Loop",
+      "description": "把代码任务变成可审计的工程循环：读仓库、拆风险、运行验证、产出报告、再改进 Loop。",
+      "forge_id": "code-forge",
+      "version": "1.0.0",
+      "status": "ready",
+      "trigger_phrases": [
+        "代码审查",
+        "修 bug",
+        "PR review",
+        "run code loop"
+      ],
+      "inputs": [
+        "repo path",
+        "issue or PR",
+        "acceptance criteria",
+        "test command"
+      ],
+      "roles": [
+        {
+          "role_id": "pm",
+          "name": "Project Manager",
+          "responsibility": "拆任务、定边界、确认验收标准",
+          "default_model_policy": "auto"
+        },
+        {
+          "role_id": "backend",
+          "name": "Backend Agent",
+          "responsibility": "分析 API、数据和后端风险",
+          "default_model_policy": "auto"
+        },
+        {
+          "role_id": "frontend",
+          "name": "Frontend Agent",
+          "responsibility": "检查 UI、状态、交互和浏览器验证",
+          "default_model_policy": "auto"
+        },
+        {
+          "role_id": "reviewer",
+          "name": "Reviewer",
+          "responsibility": "审查遗漏、测试证据和回归风险",
+          "default_model_policy": "auto"
+        }
+      ],
+      "steps": [
+        {
+          "step_id": "context",
+          "title": "读取上下文",
+          "owner_role": "pm",
+          "instruction": "确认仓库、目标、约束和可执行验证。",
+          "evidence_required": [
+            "repo summary"
+          ],
+          "expected_output": "任务边界"
+        },
+        {
+          "step_id": "risk",
+          "title": "拆解风险",
+          "owner_role": "backend",
+          "instruction": "列出后端、前端、数据、权限和依赖风险。",
+          "evidence_required": [
+            "changed surface"
+          ],
+          "expected_output": "风险清单"
+        },
+        {
+          "step_id": "build",
+          "title": "实施或建议",
+          "owner_role": "frontend",
+          "instruction": "按最小改动完成实现或给出可执行建议。",
+          "evidence_required": [
+            "diff or plan"
+          ],
+          "expected_output": "实现说明"
+        },
+        {
+          "step_id": "verify",
+          "title": "运行验证",
+          "owner_role": "reviewer",
+          "instruction": "运行测试、类型检查或浏览器检查，并记录失败项。",
+          "evidence_required": [
+            "test output"
+          ],
+          "expected_output": "验证结果"
+        },
+        {
+          "step_id": "improve",
+          "title": "改进 Loop",
+          "owner_role": "pm",
+          "instruction": "根据本次结果更新下一轮 Loop 的检查点。",
+          "evidence_required": [
+            "review note"
+          ],
+          "expected_output": "Loop 改进建议"
+        }
+      ],
+      "tools": [
+        "GitHub",
+        "Codex Security",
+        "Build Web Apps",
+        "Browser"
+      ],
+      "evidence_rules": [
+        "每个结论绑定文件、命令、截图或模型输出来源。",
+        "失败验证不能隐藏，必须进入下一轮改进。"
+      ],
+      "artifact_outputs": [
+        {
+          "title": "代码审查报告",
+          "format": "markdown",
+          "purpose": "交付给用户或老师的工程证据"
+        },
+        {
+          "title": "验证记录",
+          "format": "markdown",
+          "purpose": "说明跑了什么、结果如何"
+        }
+      ],
+      "evaluation_rubric": [
+        "是否解决目标",
+        "是否有可追溯证据",
+        "是否能复用到下一台设备"
+      ],
+      "memory_policy": "Record final artifact, loop version, evidence, model routing, and next improvement.",
+      "approval_checkpoints": [
+        "写入文件",
+        "执行外部命令",
+        "调用付费 API"
+      ],
+      "improvement_count": 0,
+      "updated_at": "2026-06-14T11:17:40.064221+00:00",
+      "source": "default",
+      "loop_md": null
+    },
+    "worldcup-prediction-loop": {
+      "loop_id": "worldcup-prediction-loop",
+      "name": "World Cup Prediction Loop",
+      "description": "用五个专家 Agent 从球队状态、阵容、战术、赛程和赔率/舆情维度预测冠军，并把过程截图给演示 PPT。",
+      "forge_id": "research-forge",
+      "version": "1.0.0",
+      "status": "ready",
+      "trigger_phrases": [
+        "世界杯预测",
+        "冠军预测",
+        "demo loop"
+      ],
+      "inputs": [
+        "tournament year",
+        "candidate teams",
+        "available sources",
+        "model pair"
+      ],
+      "roles": [
+        {
+          "role_id": "form",
+          "name": "状态分析 Agent",
+          "responsibility": "看近期战绩、伤病和核心球员状态",
+          "default_model_policy": "auto"
+        },
+        {
+          "role_id": "squad",
+          "name": "阵容深度 Agent",
+          "responsibility": "比较首发、替补、年龄结构和位置短板",
+          "default_model_policy": "auto"
+        },
+        {
+          "role_id": "tactics",
+          "name": "战术 Agent",
+          "responsibility": "分析打法适配、攻防转换和教练稳定性",
+          "default_model_policy": "auto"
+        },
+        {
+          "role_id": "schedule",
+          "name": "赛程 Agent",
+          "responsibility": "评估分组、淘汰赛路径和旅途消耗",
+          "default_model_policy": "auto"
+        },
+        {
+          "role_id": "market",
+          "name": "外部信号 Agent",
+          "responsibility": "参考赔率、媒体共识和不确定性",
+          "default_model_policy": "auto"
+        }
+      ],
+      "steps": [
+        {
+          "step_id": "question",
+          "title": "锁定问题",
+          "owner_role": "form",
+          "instruction": "确认预测目标和候选队。",
+          "evidence_required": [
+            "candidate teams",
+            "recent form source"
+          ],
+          "expected_output": "研究问题"
+        },
+        {
+          "step_id": "evidence",
+          "title": "多源收集",
+          "owner_role": "squad",
+          "instruction": "分别收集五个维度证据。",
+          "evidence_required": [
+            "squad depth source",
+            "injury or roster source"
+          ],
+          "expected_output": "证据表"
+        },
+        {
+          "step_id": "debate",
+          "title": "专家讨论",
+          "owner_role": "tactics",
+          "instruction": "让五个 Agent 给出候选冠军和反证。",
+          "evidence_required": [
+            "tactical evidence",
+            "counter-evidence"
+          ],
+          "expected_output": "分歧点"
+        },
+        {
+          "step_id": "score",
+          "title": "评分合并",
+          "owner_role": "market",
+          "instruction": "按维度评分并给出置信度。",
+          "evidence_required": [
+            "market odds source",
+            "media consensus source"
+          ],
+          "expected_output": "冠军预测"
+        },
+        {
+          "step_id": "artifact",
+          "title": "沉淀产物",
+          "owner_role": "schedule",
+          "instruction": "生成 War Room 过程和报告截图清单。",
+          "evidence_required": [
+            "schedule source",
+            "travel or rest-day evidence"
+          ],
+          "expected_output": "演示素材"
+        }
+      ],
+      "tools": [
+        "Browser",
+        "Data Analytics",
+        "Documents",
+        "Presentations"
+      ],
+      "evidence_rules": [
+        "不要只给结论，必须展示每个 Agent 的证据和不确定性。",
+        "预测必须包含反证和置信度。"
+      ],
+      "artifact_outputs": [
+        {
+          "title": "世界杯预测报告",
+          "format": "markdown",
+          "purpose": "课堂演示 demo"
+        },
+        {
+          "title": "War Room 过程截图",
+          "format": "image-set",
+          "purpose": "PPT 展示多 Agent 过程"
+        }
+      ],
+      "evaluation_rubric": [
+        "维度覆盖是否完整",
+        "证据是否可追溯",
+        "结论是否自然可信"
+      ],
+      "memory_policy": "Record final artifact, loop version, evidence, model routing, and next improvement.",
+      "approval_checkpoints": [],
+      "improvement_count": 0,
+      "updated_at": "2026-06-14T11:17:40.064221+00:00",
+      "source": "default",
+      "loop_md": null
+    }
+  }
+}

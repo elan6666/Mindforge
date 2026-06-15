@@ -330,6 +330,45 @@ class HistoryService:
             ),
         )
 
+    def update_task_result_metadata(
+        self,
+        task_id: str,
+        *,
+        metadata: dict[str, object],
+        output: str,
+        status: str,
+        message: str,
+        provider: str | None,
+        error_message: str | None = None,
+    ) -> TaskHistoryDetail | None:
+        """Update a persisted task after a runtime metadata mutation."""
+        current = self.store.get_task_run(task_id)
+        if current is None:
+            return None
+        timestamp = _utc_now()
+        self.store.upsert_task_run(
+            {
+                "task_id": current["task_id"],
+                "prompt": current["prompt"],
+                "task_type": current["task_type"],
+                "preset_mode": current["preset_mode"],
+                "status": status,
+                "provider": provider,
+                "message": message,
+                "output_text": output,
+                "error_message": error_message,
+                "repo_path": current["repo_path"],
+                "request_payload": json.dumps(current["request_payload"]),
+                "metadata_json": json.dumps(metadata),
+                "requires_approval": int(current["requires_approval"]),
+                "approval_status": current["approval_status"],
+                "coordinator_model_id": current["coordinator_model_id"],
+                "created_at": current["created_at"],
+                "updated_at": timestamp,
+            }
+        )
+        return self.get_task_detail(task_id)
+
     @staticmethod
     def _conversation_id_from_row(row: dict[str, object]) -> str | None:
         metadata = row.get("metadata_json")

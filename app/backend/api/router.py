@@ -8,6 +8,7 @@ from app.backend.api.routes.files import router as files_router
 from app.backend.api.routes.github import router as github_router
 from app.backend.api.routes.health import router as health_router
 from app.backend.api.routes.history import router as history_router
+from app.backend.api.routes.loops import router as loops_router
 from app.backend.api.routes.mcp import router as mcp_router
 from app.backend.api.routes.model_control import router as model_control_router
 from app.backend.api.routes.models import router as models_router
@@ -23,6 +24,7 @@ api_router.include_router(files_router, prefix="/files", tags=["files"])
 api_router.include_router(github_router, tags=["github"])
 api_router.include_router(health_router, tags=["health"])
 api_router.include_router(history_router, prefix="/history", tags=["history"])
+api_router.include_router(loops_router, prefix="/loops", tags=["loops"])
 api_router.include_router(mcp_router, prefix="/mcp", tags=["mcp"])
 api_router.include_router(model_control_router, tags=["model-control"])
 api_router.include_router(models_router, tags=["models"])

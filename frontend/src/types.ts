@@ -336,7 +336,61 @@ export type ArtifactSummary = {
   size_bytes: number;
   created_at: string;
   source_task_id?: string | null;
+  loop_id?: string | null;
+  loop_name?: string | null;
+  provenance?: Record<string, unknown>;
   download_url: string;
+};
+
+export type LoopRole = {
+  role_id: string;
+  name: string;
+  responsibility: string;
+  default_model_policy: string;
+};
+
+export type LoopStep = {
+  step_id: string;
+  title: string;
+  owner_role: string;
+  instruction: string;
+  evidence_required: string[];
+  expected_output: string;
+};
+
+export type LoopArtifactSpec = {
+  title: string;
+  format: string;
+  purpose: string;
+};
+
+export type LoopDefinition = {
+  loop_id: string;
+  name: string;
+  description: string;
+  forge_id: string;
+  version: string;
+  status: string;
+  trigger_phrases: string[];
+  inputs: string[];
+  roles: LoopRole[];
+  steps: LoopStep[];
+  tools: string[];
+  evidence_rules: string[];
+  artifact_outputs: LoopArtifactSpec[];
+  evaluation_rubric: string[];
+  memory_policy: string;
+  approval_checkpoints: string[];
+  improvement_count: number;
+  updated_at: string;
+  source: string;
+  loop_md?: string | null;
+};
+
+export type LoopMarkdownExport = {
+  loop_id: string;
+  filename: string;
+  content: string;
 };
 
 export type TaskResult = {
@@ -365,6 +419,8 @@ export type TaskResult = {
       } | null;
       effective_role_model_overrides?: Record<string, string>;
       orchestration?: OrchestrationTrace;
+      loop?: Record<string, unknown>;
+      loop_run?: Record<string, unknown>;
       repo_analysis?: RepoAnalysis | null;
       github_context?: GitHubContextSummary | null;
       academic_context?: AcademicContextSummary | null;
@@ -455,6 +511,8 @@ export type TaskHistoryDetail = TaskHistorySummary & {
   request_payload: Record<string, unknown>;
   metadata: {
     orchestration?: OrchestrationTrace;
+    loop?: Record<string, unknown>;
+    loop_run?: Record<string, unknown>;
     repo_analysis?: RepoAnalysis | null;
     github_context?: GitHubContextSummary | null;
     academic_context?: AcademicContextSummary | null;

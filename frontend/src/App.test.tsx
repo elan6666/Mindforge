@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
@@ -6,6 +6,7 @@ import * as api from "./lib/api";
 import type {
   ApprovalRecord,
   ArtifactSummary,
+  LoopDefinition,
   MCPServerSummary,
   MCPToolAuditRecord,
   MCPToolListResult,
@@ -37,6 +38,7 @@ vi.mock("./lib/api", () => ({
   fetchConversationHistory: vi.fn(),
   fetchEditableModels: vi.fn(),
   fetchHistoryTasks: vi.fn(),
+  fetchLoops: vi.fn(),
   fetchMcpAudit: vi.fn(),
   fetchMcpServers: vi.fn(),
   fetchMcpTools: vi.fn(),
@@ -57,6 +59,10 @@ vi.mock("./lib/api", () => ({
   uploadFile: vi.fn(),
   exportArtifact: vi.fn(),
   updateCanvasArtifact: vi.fn(),
+  importLoopMarkdown: vi.fn(),
+  exportLoopMarkdown: vi.fn(),
+  improveLoop: vi.fn(),
+  retryLoopStage: vi.fn(),
   updateModelControl: vi.fn(),
   updateProviderControl: vi.fn(),
   updateRuleTemplate: vi.fn(),
@@ -238,6 +244,53 @@ const exportedArtifact: ArtifactSummary = {
   download_url: "/api/artifacts/artifact-1/download",
 };
 
+const loops: LoopDefinition[] = [
+  {
+    loop_id: "code-review-loop",
+    name: "Code Review Loop",
+    description: "把代码任务变成可审计的工程循环。",
+    forge_id: "code-forge",
+    version: "1.0.0",
+    status: "ready",
+    trigger_phrases: ["代码审查"],
+    inputs: ["repo path"],
+    roles: [
+      {
+        role_id: "pm",
+        name: "Project Manager",
+        responsibility: "拆任务、定边界、确认验收标准",
+        default_model_policy: "auto",
+      },
+    ],
+    steps: [
+      {
+        step_id: "context",
+        title: "读取上下文",
+        owner_role: "pm",
+        instruction: "确认仓库和目标。",
+        evidence_required: ["repo summary"],
+        expected_output: "任务边界",
+      },
+    ],
+    tools: ["GitHub"],
+    evidence_rules: ["每个结论绑定来源。"],
+    artifact_outputs: [
+      {
+        title: "代码审查报告",
+        format: "markdown",
+        purpose: "工程证据",
+      },
+    ],
+    evaluation_rubric: ["证据是否可追溯"],
+    memory_policy: "保存 loop_id 和证据。",
+    approval_checkpoints: [],
+    improvement_count: 0,
+    updated_at: "2026-05-02T00:00:00+00:00",
+    source: "default",
+    loop_md: "# Loop: Code Review Loop",
+  },
+];
+
 const approval: ApprovalRecord = {
   approval_id: "approval-1",
   task_id: "task-1",
@@ -296,6 +349,101 @@ const historyDetail: TaskHistoryDetail = {
           error_message: null,
         },
       ],
+    },
+    loop_run: {
+      loop_id: "code-review-loop",
+      loop_name: "Code Review Loop",
+      version: "1.0.0",
+      status: "completed",
+      runtime_version: "loop-runtime-v2",
+      total_duration_ms: 1280,
+      roles: [
+        {
+          role_id: "pm",
+          name: "Project Manager",
+          responsibility: "拆任务、定边界、确认验收标准",
+        },
+      ],
+      stages: [
+        {
+          order: 1,
+          stage_id: "context",
+          stage_name: "读取上下文",
+          role: "pm",
+          role_name: "Project Manager",
+          status: "completed",
+          summary: "已读取仓库上下文。",
+          output: "计划输出 confidence 82%",
+          evidence_required: ["repo summary"],
+          expected_output: "任务边界",
+          model: "gpt-5.4",
+          provider: "mock-openhands",
+          duration_ms: 1280,
+          attempt: 1,
+          retry_count: 0,
+        },
+      ],
+      timeline: [
+        {
+          order: 1,
+          stage_id: "context",
+          stage_name: "读取上下文",
+          role: "pm",
+          model: "gpt-5.4",
+          status: "completed",
+          duration_ms: 1280,
+          attempt: 1,
+          retry_count: 0,
+        },
+      ],
+      model_performance: [
+        {
+          model_id: "gpt-5.4",
+          provider: "mock-openhands",
+          roles: ["pm"],
+          stages: ["context"],
+          completed_count: 1,
+          failed_count: 0,
+          total_duration_ms: 1280,
+          total_tokens: 42,
+          average_confidence: 82,
+        },
+      ],
+      evidence_ledger: [
+        {
+          stage_id: "context",
+          stage_name: "读取上下文",
+          role: "pm",
+          model: "gpt-5.4",
+          status: "verified",
+          evidence_score: 100,
+          requirements: [{ requirement: "repo summary", status: "provided" }],
+          checks: [
+            { field: "source_reference", label: "来源/引用", status: "provided" },
+            { field: "source_date", label: "日期/时间范围", status: "provided" },
+            { field: "counter_evidence", label: "反证/风险", status: "provided" },
+            { field: "confidence", label: "置信度", status: "provided" },
+          ],
+          sources: [{ kind: "url", value: "https://example.test/repo" }],
+          dates: ["2026-06-14"],
+          confidence: 82,
+          missing_fields: [],
+          counter_evidence_present: true,
+          expected_output: "任务边界",
+          summary: "已读取仓库上下文。",
+        },
+      ],
+      improve_suggestions: [
+        {
+          kind: "judge",
+          priority: "medium",
+          title: "加入独立 reviewer stage",
+          detail: "让 reviewer 只评分证据、冲突和信心。",
+        },
+      ],
+      evidence_rules: ["每个结论绑定来源。"],
+      artifact_outputs: [],
+      improvement_count: 0,
     },
     github_context: {
       repository: {
@@ -456,6 +604,7 @@ function setupApiMocks() {
   vi.mocked(api.fetchMcpAudit).mockResolvedValue(mcpAuditRecords);
   vi.mocked(api.fetchMcpTools).mockResolvedValue(mcpToolResult);
   vi.mocked(api.fetchHistoryTasks).mockResolvedValue(historyItems);
+  vi.mocked(api.fetchLoops).mockResolvedValue(loops);
   vi.mocked(api.fetchPendingApprovals).mockResolvedValue([approval]);
   vi.mocked(api.fetchTaskHistoryDetail).mockResolvedValue(historyDetail);
   vi.mocked(api.fetchConversationHistory).mockResolvedValue([historyDetail]);
@@ -482,6 +631,49 @@ function setupApiMocks() {
     notes: payload.notes || skills[0].notes,
   }));
   vi.mocked(api.exportArtifact).mockResolvedValue(exportedArtifact);
+  vi.mocked(api.importLoopMarkdown).mockImplementation(async () => ({
+    ...loops[0],
+    loop_id: "custom-loop",
+    name: "Custom Loop",
+    source: "loop.md",
+  }));
+  vi.mocked(api.exportLoopMarkdown).mockResolvedValue({
+    loop_id: "code-review-loop",
+    filename: "code-review-loop.loop.md",
+    content: "# Loop: Code Review Loop",
+  });
+  vi.mocked(api.improveLoop).mockImplementation(async (loopId) => ({
+    ...loops[0],
+    loop_id: loopId,
+    version: "1.0.1",
+    improvement_count: 1,
+  }));
+  vi.mocked(api.retryLoopStage).mockImplementation(async (_taskId, _stageId) => ({
+    ...historyDetail,
+    metadata: {
+      ...historyDetail.metadata,
+      loop_run: {
+        ...historyDetail.metadata.loop_run,
+        total_duration_ms: 1600,
+        stages: [
+          {
+            ...((historyDetail.metadata.loop_run?.stages as Array<Record<string, unknown>>)[0] || {}),
+            retry_count: 1,
+            attempt: 2,
+            summary: "重跑后更新的上下文。",
+          },
+        ],
+        timeline: [
+          {
+            ...((historyDetail.metadata.loop_run?.timeline as Array<Record<string, unknown>>)[0] || {}),
+            retry_count: 1,
+            attempt: 2,
+            duration_ms: 1600,
+          },
+        ],
+      },
+    },
+  }));
   vi.mocked(api.uploadFile).mockImplementation(async (file) => ({
     file_id: `file-${file.name}`,
     name: file.name,
@@ -604,6 +796,7 @@ async function openFirstHistoryConversation() {
 describe("App workspace shell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
     setupApiMocks();
   });
 
@@ -612,16 +805,136 @@ describe("App workspace shell", () => {
   });
 
   it("renders the workspace shell with history and backend context", async () => {
-    render(<App />);
+    const { container } = render(<App />);
 
     await waitForWorkspaceData();
 
+    expect(container.querySelector(".shell")).toHaveClass("shell--default");
     expect(screen.getByText("Mindforge 控制工作台")).toBeInTheDocument();
     expect(screen.getByText("任务工作台")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Default 默认/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     expect(screen.getAllByText("待审批").length).toBeGreaterThan(0);
     expect(screen.getByText("1 个待审批")).toBeInTheDocument();
     expect(screen.getByText("OpenAI")).toBeInTheDocument();
     expect(screen.getByText("http://127.0.0.1:8000/api")).toBeInTheDocument();
+  });
+
+  it("switches to Orbital Command and persists the visual style", async () => {
+    const { container, unmount } = render(<App />);
+
+    await waitForWorkspaceData();
+
+    fireEvent.click(screen.getByRole("button", { name: /Orbital Command 轨道指挥舱/ }));
+
+    expect(container.querySelector(".shell")).toHaveClass("shell--orbital-command");
+    expect(window.localStorage.getItem("mindforge.visualStyle")).toBe("orbital-command");
+    expect(screen.getByRole("button", { name: /Orbital Command 轨道指挥舱/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    unmount();
+    const rerendered = render(<App />);
+    await waitForWorkspaceData();
+    expect(rerendered.container.querySelector(".shell")).toHaveClass(
+      "shell--orbital-command",
+    );
+  });
+
+  it("shows forge workflows, the war room, model arena, and artifact library", async () => {
+    render(<App />);
+
+    await waitForWorkspaceData();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Code Forge/ }));
+
+    expect(await screen.findByRole("heading", { name: "Code Forge" })).toBeInTheDocument();
+    expect(screen.getByText("修复 Bug")).toBeInTheDocument();
+    expect(screen.getByText("Project Manager")).toBeInTheDocument();
+    expect(screen.getByText("代码审查报告")).toBeInTheDocument();
+    expect(screen.getByText("推荐插件包")).toBeInTheDocument();
+    expect(screen.getByText("Code Review Pack")).toBeInTheDocument();
+    expect(screen.getByText("codex-security:security-diff-scan")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Agent War Room/ }));
+    expect(await screen.findByRole("heading", { name: "Agent War Room" })).toBeInTheDocument();
+    expect(screen.getByText("当前阶段输出")).toBeInTheDocument();
+    expect(screen.getByText("证据 / 工具 / 模型")).toBeInTheDocument();
+    expect(screen.getByText("插件包")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Model Arena/ }));
+    expect(await screen.findByRole("heading", { name: "Model Arena" })).toBeInTheDocument();
+    expect(screen.getByText("评分维度")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Artifact Library/ }));
+    expect(await screen.findByRole("heading", { name: "Artifact Library" })).toBeInTheDocument();
+    expect(screen.getByText("网页原型与截图证据")).toBeInTheDocument();
+  });
+
+  it("shows loop runtime details and retries one stage from the war room", async () => {
+    render(<App />);
+
+    await waitForWorkspaceData();
+    await openFirstHistoryConversation();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Agent War Room/ }));
+
+    expect(await screen.findByText("Loop Run Timeline")).toBeInTheDocument();
+    expect(screen.getByText("loop-runtime-v2 / 1.3 s")).toBeInTheDocument();
+    expect(screen.getByText("Model Performance")).toBeInTheDocument();
+    expect(screen.getByText("Evidence Ledger")).toBeInTheDocument();
+    expect(screen.getByText(/Evidence 100%/)).toBeInTheDocument();
+    expect(screen.getByText(/sources 1/)).toBeInTheDocument();
+    expect(screen.getByText("加入独立 reviewer stage")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(api.retryLoopStage).toHaveBeenCalledWith(
+        "task-1",
+        "context",
+        expect.objectContaining({ note: expect.stringContaining("War Room") }),
+      );
+    });
+    expect(await screen.findByText("已重跑 context，Loop Runtime 已刷新。")).toBeInTheDocument();
+  });
+
+  it("launches a workflow pack with plugins and skills prefilled", async () => {
+    render(<App />);
+
+    await waitForWorkspaceData();
+
+    fireEvent.click(screen.getByRole("button", { name: "Skills / MCP 能力插件中心" }));
+    const codeReviewTitle = await screen.findByText("Code Review Pack");
+    const codeReviewCard = codeReviewTitle.closest("article");
+    expect(codeReviewCard).not.toBeNull();
+
+    fireEvent.click(
+      within(codeReviewCard as HTMLElement).getByRole("button", {
+        name: "套用这个插件包",
+      }),
+    );
+
+    expect(await screen.findByRole("heading", { name: "Code Forge" })).toBeInTheDocument();
+    expect((screen.getByLabelText("Code Forge 任务输入") as HTMLTextAreaElement).value).toContain(
+      "Code Review Pack",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "用此工作流发起" }));
+
+    expect(await screen.findByRole("heading", { name: "任务工作台" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Skills")).toHaveValue(
+      "byte-code-rules, build-web-apps:frontend-testing-debugging, codex-security:security-diff-scan, github:github",
+    );
+    expect(screen.getByLabelText("MCP Servers")).toHaveValue(
+      "github, codex-security, build-web-apps, browser",
+    );
+    expect(screen.getByRole("button", { name: "代码执行" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
   it("shows task fields according to the selected preset", async () => {
@@ -682,7 +995,11 @@ describe("App workspace shell", () => {
 
     await waitForWorkspaceData();
 
-    fireEvent.click(screen.getByRole("button", { name: /代码工程/ }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "代码工程 适合仓库改造、Bug 修复、功能实现。",
+      }),
+    );
 
     expect(screen.getByLabelText("任务描述")).toHaveValue(
       "请帮我分析这个代码任务，并给出可执行的实现方案：",
@@ -1007,7 +1324,12 @@ describe("App workspace shell", () => {
     await waitForWorkspaceData();
     expect(await screen.findByLabelText("底部模型选择")).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole("button", { name: /工具/ })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Skills / MCP 能力插件中心" }));
+    expect(await screen.findByRole("heading", { name: "插件与 Skills 工作流包" })).toBeInTheDocument();
+    expect(screen.getByText("Workflow Pack Registry")).toBeInTheDocument();
+    expect(screen.getByText("Site Shipping Pack")).toBeInTheDocument();
+    expect(screen.getByText("product-design:index")).toBeInTheDocument();
+    expect(screen.getByText("data-analytics:build-report")).toBeInTheDocument();
     expect(await screen.findByText("工具与 Skills 中心")).toBeInTheDocument();
     expect(screen.getAllByText("frontend-design").length).toBeGreaterThan(0);
     expect(screen.getByText("调用需审批")).toBeInTheDocument();
@@ -1075,8 +1397,8 @@ describe("App workspace shell", () => {
     render(<App />);
 
     await waitForWorkspaceData();
-    fireEvent.click(screen.getByRole("button", { name: "项目 空间" }));
-    expect(await screen.findByText("项目空间")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "项目空间 Project Memory" }));
+    expect(await screen.findByRole("heading", { name: "项目空间" })).toBeInTheDocument();
     expect(screen.getByText("Mindforge Dev")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Project ID"), {
@@ -1124,12 +1446,12 @@ describe("App workspace shell", () => {
 
     await waitForWorkspaceData();
 
-    fireEvent.click(screen.getByRole("button", { name: "模型 控制" }));
+    fireEvent.click(screen.getByRole("button", { name: /模型控制/ }));
     expect(await screen.findByText("模型控制中心")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存模型设置" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "模板 规则" }));
-    expect(await screen.findByText("规则模板")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "设置 规则模板" }));
+    expect(await screen.findByRole("heading", { name: "规则模板" })).toBeInTheDocument();
     expect(screen.getByText("模板编辑器")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存模板" })).toBeInTheDocument();
   });
@@ -1139,7 +1461,7 @@ describe("App workspace shell", () => {
 
     await waitForWorkspaceData();
 
-    fireEvent.click(screen.getByRole("button", { name: "模型 控制" }));
+    fireEvent.click(screen.getByRole("button", { name: /模型控制/ }));
     expect(await screen.findByText("模型服务商/API 管理")).toBeInTheDocument();
     expect(screen.getByText("已配置")).toBeInTheDocument();
 

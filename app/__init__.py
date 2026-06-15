@@ -1,2 +1,1 @@
 """Application namespace package."""
-

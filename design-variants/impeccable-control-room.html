@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>Mindforge Variant - Impeccable</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: oklch(0.975 0.006 255);
+        --surface: oklch(1 0 0);
+        --surface-2: oklch(0.952 0.008 255);
+        --ink: oklch(0.19 0.015 260);
+        --muted: oklch(0.43 0.02 260);
+        --subtle: oklch(0.63 0.018 260);
+        --line: oklch(0.87 0.012 255);
+        --accent: oklch(0.54 0.19 255);
+        --accent-soft: oklch(0.94 0.035 255);
+        --success: oklch(0.48 0.12 155);
+        --warn: oklch(0.66 0.15 68);
+        --danger: oklch(0.56 0.18 28);
+        --radius: 12px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", sans-serif;
+        font-size: 14px;
+      }
+
+      button,
+      input,
+      textarea,
+      select {
+        font: inherit;
+      }
+
+      button:focus-visible,
+      textarea:focus-visible,
+      select:focus-visible {
+        outline: 3px solid oklch(0.72 0.15 255 / 0.55);
+        outline-offset: 2px;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: 256px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        border-right: 1px solid var(--line);
+        background: var(--surface);
+        padding: 18px 14px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .brand {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 8px 8px 18px;
+      }
+
+      .brand-mark {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        background: var(--ink);
+        color: white;
+        display: grid;
+        place-items: center;
+        font-weight: 800;
+      }
+
+      .brand-title {
+        font-weight: 700;
+        font-size: 15px;
+      }
+
+      .brand-subtitle,
+      .muted {
+        color: var(--muted);
+      }
+
+      .section-label {
+        color: var(--subtle);
+        font-size: 11px;
+        font-weight: 700;
+        margin: 18px 8px 7px;
+      }
+
+      .nav-button {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        border-radius: 8px;
+        color: var(--muted);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 9px 10px;
+        margin: 2px 0;
+        cursor: pointer;
+      }
+
+      .nav-button:hover {
+        background: var(--surface-2);
+        color: var(--ink);
+      }
+
+      .nav-button[aria-current="page"] {
+        color: var(--accent);
+        background: var(--accent-soft);
+        font-weight: 700;
+      }
+
+      .content {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-width: 0;
+      }
+
+      .topbar {
+        height: 62px;
+        border-bottom: 1px solid var(--line);
+        background: oklch(1 0 0 / 0.86);
+        backdrop-filter: blur(18px);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 24px;
+      }
+
+      .topbar h1 {
+        margin: 0;
+        font-size: 18px;
+        letter-spacing: 0;
+      }
+
+      .top-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .button {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        color: var(--ink);
+        min-height: 34px;
+        padding: 0 12px;
+        cursor: pointer;
+      }
+
+      .button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: white;
+        font-weight: 700;
+      }
+
+      .button:hover {
+        border-color: oklch(0.78 0.02 255);
+      }
+
+      .workspace {
+        padding: 22px 24px 28px;
+        display: grid;
+        grid-template-columns: minmax(520px, 1fr) 340px;
+        gap: 22px;
+        align-items: start;
+      }
+
+      .panel {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+      }
+
+      .panel-header {
+        min-height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .panel-title {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .composer {
+        padding: 16px;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 124px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        resize: vertical;
+        padding: 13px;
+        color: var(--ink);
+        background: var(--bg);
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .chip {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--surface);
+        color: var(--muted);
+        padding: 6px 10px;
+      }
+
+      .stages {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 0;
+      }
+
+      .stage {
+        padding: 14px 10px;
+        border-right: 1px solid var(--line);
+      }
+
+      .stage:last-child {
+        border-right: 0;
+      }
+
+      .stage strong {
+        display: block;
+        font-size: 12px;
+      }
+
+      .stage.active {
+        background: var(--accent-soft);
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-top: 18px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        text-align: left;
+        padding: 11px 16px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--subtle);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .status {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        color: var(--muted);
+      }
+
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--success);
+      }
+
+      .dot.warn {
+        background: var(--warn);
+      }
+
+      .side-stack {
+        display: grid;
+        gap: 16px;
+      }
+
+      .model-row,
+      .artifact-row,
+      .agent-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .model-row:last-child,
+      .artifact-row:last-child,
+      .agent-row:last-child {
+        border-bottom: 0;
+      }
+
+      .score {
+        font-weight: 800;
+        color: var(--accent);
+      }
+
+      @media (max-width: 1080px) {
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .stages,
+        .two-col {
+          grid-template-columns: 1fr;
+        }
+
+        .stage {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          scroll-behavior: auto !important;
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand"><div class="brand-mark">M</div><div><div class="brand-title">Mindforge</div><div class="brand-subtitle">Operational Console</div></div></div>
+        <div class="section-label">START</div>
+        <button class="nav-button">新任务 <span>⌘N</span></button>
+        <button class="nav-button">项目空间 <span>8</span></button>
+        <div class="section-label">FORGE</div>
+        <button class="nav-button" aria-current="page">Code Forge <span>代码</span></button>
+        <button class="nav-button">Doc Forge <span>文档</span></button>
+        <button class="nav-button">Research Forge <span>研究</span></button>
+        <button class="nav-button">Site Forge <span>前端</span></button>
+        <button class="nav-button">Data Forge <span>数据</span></button>
+        <div class="section-label">CONTROL</div>
+        <button class="nav-button">Agent War Room <span>4</span></button>
+        <button class="nav-button">Model Arena <span>3</span></button>
+        <button class="nav-button">Artifact Library <span>12</span></button>
+        <button class="nav-button">Approval Center <span>2</span></button>
+      </aside>
+      <section class="content">
+        <header class="topbar">
+          <h1>Code Forge 代码工程</h1>
+          <div class="top-actions"><button class="button">保存为模板</button><button class="button primary">开始执行</button></div>
+        </header>
+        <main class="workspace">
+          <div>
+            <section class="panel">
+              <div class="panel-header"><h2 class="panel-title">任务输入</h2><span class="status"><span class="dot"></span>DeepSeek V4 Flash ready</span></div>
+              <div class="composer">
+                <textarea>修复用户登录后偶发 500 错误，并完善相关单元测试。需要输出 patch、测试结果、风险说明和可导出的修复报告。</textarea>
+                <div class="controls"><button class="chip">repo: mindforge-main</button><button class="chip">PM / Backend / Frontend / Reviewer</button><button class="chip">approval required</button></div>
+              </div>
+            </section>
+            <section class="panel" style="margin-top: 18px;">
+              <div class="panel-header"><h2 class="panel-title">执行阶段</h2><span class="muted">6 steps</span></div>
+              <div class="stages">
+                <div class="stage active"><strong>需求拆解</strong><span class="muted">running</span></div>
+                <div class="stage"><strong>方案设计</strong><span class="muted">queued</span></div>
+                <div class="stage"><strong>代码实现</strong><span class="muted">queued</span></div>
+                <div class="stage"><strong>测试验证</strong><span class="muted">queued</span></div>
+                <div class="stage"><strong>代码审查</strong><span class="muted">queued</span></div>
+                <div class="stage"><strong>交付总结</strong><span class="muted">queued</span></div>
+              </div>
+            </section>
+            <div class="two-col">
+              <section class="panel">
+                <div class="panel-header"><h2 class="panel-title">证据与上下文</h2><button class="button">筛选</button></div>
+                <table>
+                  <thead><tr><th>类型</th><th>来源</th><th>状态</th></tr></thead>
+                  <tbody>
+                    <tr><td>日志</td><td>error.log</td><td><span class="status"><span class="dot warn"></span>待确认</span></td></tr>
+                    <tr><td>代码</td><td>auth.service.ts</td><td><span class="status"><span class="dot"></span>已索引</span></td></tr>
+                    <tr><td>测试</td><td>auth.test.ts</td><td><span class="status"><span class="dot"></span>已准备</span></td></tr>
+                  </tbody>
+                </table>
+              </section>
+              <section class="panel">
+                <div class="panel-header"><h2 class="panel-title">Agent War Room</h2><span class="muted">实时</span></div>
+                <div class="agent-row"><span>PM 正在拆解影响范围</span><span class="muted">10:24</span></div>
+                <div class="agent-row"><span>Backend 定位异常路径</span><span class="muted">10:23</span></div>
+                <div class="agent-row"><span>Reviewer 等待 patch</span><span class="muted">hold</span></div>
+              </section>
+            </div>
+          </div>
+          <aside class="side-stack">
+            <section class="panel">
+              <div class="panel-header"><h2 class="panel-title">Model Arena</h2><button class="button">配置</button></div>
+              <div class="model-row"><span>deepseek-v4-flash</span><span class="score">88</span></div>
+              <div class="model-row"><span>gpt-4o</span><span class="score">82</span></div>
+              <div class="model-row"><span>claude-sonnet</span><span class="score">80</span></div>
+            </section>
+            <section class="panel">
+              <div class="panel-header"><h2 class="panel-title">Artifact Library</h2><span class="muted">latest</span></div>
+              <div class="artifact-row"><span>fix-plan.md</span><span class="muted">v1.2</span></div>
+              <div class="artifact-row"><span>patch.diff</span><span class="muted">v1.1</span></div>
+              <div class="artifact-row"><span>risk-review.md</span><span class="muted">v1.0</span></div>
+            </section>
+          </aside>
+        </main>
+      </section>
+    </div>
+  </body>
+</html>

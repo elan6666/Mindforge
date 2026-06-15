@@ -14,4 +14,3 @@ def list_presets(
 ) -> list[PresetSummary]:
     """Return all available preset summaries."""
     return service.list_presets()
-

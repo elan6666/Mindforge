@@ -13,6 +13,7 @@ from app.backend.services.artifact_service import clear_artifact_service_cache
 from app.backend.services.github_context_service import clear_github_context_service_cache
 from app.backend.services.file_context_service import clear_file_context_service_cache
 from app.backend.services.history_service import clear_history_service_cache
+from app.backend.services.loop_service import clear_loop_service_cache
 from app.backend.services.mcp_service import clear_mcp_service_cache
 from app.backend.services.model_registry_service import clear_model_registry_service_cache
 from app.backend.services.model_routing_service import clear_model_routing_service_cache
@@ -20,7 +21,7 @@ from app.backend.services.project_space_service import clear_project_space_servi
 from app.backend.services.rule_template_service import clear_rule_template_service_cache
 from app.backend.services.skill_registry_service import clear_skill_registry_service_cache
 from app.backend.main import create_app
-from app.backend.services.task_service import clear_task_service_cache
+from app.backend.services.task_service import TaskService, clear_task_service_cache
 
 
 @pytest.fixture()
@@ -69,12 +70,14 @@ def isolated_history_storage(tmp_path, monkeypatch):
     mcp_registry_path = tmp_path / "mcp_servers.json"
     project_spaces_path = tmp_path / "project_spaces.json"
     skill_settings_path = tmp_path / "skill_settings.json"
+    loop_library_path = tmp_path / "loops.json"
     monkeypatch.setenv("SQLITE_DB_PATH", str(db_path))
     monkeypatch.setenv("FILE_STORAGE_PATH", str(file_storage_path))
     monkeypatch.setenv("ARTIFACT_STORAGE_PATH", str(artifact_storage_path))
     monkeypatch.setenv("MCP_REGISTRY_PATH", str(mcp_registry_path))
     monkeypatch.setenv("PROJECT_SPACES_PATH", str(project_spaces_path))
     monkeypatch.setenv("SKILL_SETTINGS_PATH", str(skill_settings_path))
+    monkeypatch.setenv("LOOP_LIBRARY_PATH", str(loop_library_path))
     monkeypatch.setenv("OPENHANDS_MODE", "mock")
     clear_settings_cache()
     clear_history_service_cache()
@@ -83,6 +86,7 @@ def isolated_history_storage(tmp_path, monkeypatch):
     clear_mcp_service_cache()
     clear_project_space_service_cache()
     clear_skill_registry_service_cache()
+    clear_loop_service_cache()
     clear_approval_service_cache()
     clear_github_context_service_cache()
     clear_academic_context_service_cache()
@@ -98,6 +102,7 @@ def isolated_history_storage(tmp_path, monkeypatch):
     clear_mcp_service_cache()
     clear_project_space_service_cache()
     clear_skill_registry_service_cache()
+    clear_loop_service_cache()
     clear_history_service_cache()
     clear_github_context_service_cache()
     clear_settings_cache()
@@ -448,6 +453,248 @@ def test_artifacts_endpoint_exports_downloadable_documents(isolated_history_stor
     assert {item["artifact_id"] for item in list_response.json()} == {
         item["artifact_id"] for item in created
     }
+
+
+def test_loop_library_runs_through_task_history_and_artifact_provenance(
+    isolated_history_storage,
+):
+    client = TestClient(create_app())
+
+    loops_response = client.get("/api/loops")
+    loops = loops_response.json()
+    assert loops_response.status_code == 200
+    assert any(item["loop_id"] == "code-review-loop" for item in loops)
+
+    task_response = client.post(
+        "/api/tasks",
+        json={
+            "prompt": "Run the portable code review loop.",
+            "loop_id": "code-review-loop",
+            "metadata": {"workflow_source": "test"},
+        },
+    )
+    task_body = task_response.json()
+    task_id = task_body["data"]["metadata"]["task_id"]
+    loop_run = task_body["data"]["metadata"]["loop_run"]
+
+    assert task_response.status_code == 200
+    assert loop_run["loop_id"] == "code-review-loop"
+    assert loop_run["status"] == "completed"
+    assert len(loop_run["stages"]) >= 3
+    assert loop_run["runtime_version"] == "loop-runtime-v2"
+    assert loop_run["timeline"][0]["retry_count"] == 0
+    assert loop_run["model_performance"]
+    assert loop_run["evidence_ledger"]
+    assert loop_run["improve_suggestions"]
+    assert task_body["data"]["metadata"]["artifact_provenance"]["loop"]["loop_id"] == (
+        "code-review-loop"
+    )
+
+    history_response = client.get(f"/api/history/tasks/{task_id}")
+    history_body = history_response.json()
+    assert history_response.status_code == 200
+    assert history_body["metadata"]["loop_run"]["loop_name"] == "Code Review Loop"
+
+    artifact_response = client.post(
+        "/api/artifacts/export",
+        json={
+            "title": "Loop report",
+            "content": "Loop output",
+            "format": "md",
+            "source_task_id": task_id,
+            "loop_id": "code-review-loop",
+            "loop_name": "Code Review Loop",
+            "provenance": history_body["metadata"]["artifact_provenance"],
+        },
+    )
+    artifact_body = artifact_response.json()
+    assert artifact_response.status_code == 201
+    assert artifact_body["loop_id"] == "code-review-loop"
+    assert artifact_body["provenance"]["loop"]["name"] == "Code Review Loop"
+
+
+def test_loop_stage_retry_updates_runtime_trace(isolated_history_storage):
+    client = TestClient(create_app())
+
+    task_response = client.post(
+        "/api/tasks",
+        json={
+            "prompt": "Run the portable code review loop.",
+            "loop_id": "code-review-loop",
+        },
+    )
+    task_body = task_response.json()
+    task_id = task_body["data"]["metadata"]["task_id"]
+    stage_id = task_body["data"]["metadata"]["loop_run"]["stages"][0]["stage_id"]
+
+    retry_response = client.post(
+        f"/api/tasks/{task_id}/loops/stages/{stage_id}/retry",
+        json={"note": "test retry"},
+    )
+    retry_body = retry_response.json()
+    retried_stage = retry_body["metadata"]["loop_run"]["stages"][0]
+
+    assert retry_response.status_code == 200
+    assert retry_body["metadata"]["loop_run"]["runtime_version"] == "loop-runtime-v2"
+    assert retried_stage["retry_count"] == 1
+    assert retried_stage["attempt"] == 2
+    assert retry_body["metadata"]["loop_run"]["timeline"][0]["retry_count"] == 1
+
+
+def test_loop_evidence_ledger_verifies_structured_evidence():
+    ledger = TaskService._build_loop_evidence_ledger(
+        [
+            {
+                "stage_id": "source-check",
+                "stage_name": "Source Check",
+                "role": "researcher",
+                "model": "test-model",
+                "status": "completed",
+                "summary": "Verified source-backed claim.",
+                "output": (
+                    "Evidence:\n"
+                    "- source: https://example.test/report\n"
+                    "- date: 2026-06-14\n"
+                    "- claim: repo summary confirms the changed surface.\n"
+                    "Counter-evidence: limited sample.\n"
+                    "Confidence: 88%"
+                ),
+                "evidence_required": ["repo summary"],
+                "expected_output": "verified evidence",
+            }
+        ]
+    )
+
+    item = ledger[0]
+    assert item["status"] == "verified"
+    assert item["evidence_score"] == 100
+    assert item["sources"][0]["value"] == "https://example.test/report"
+    assert item["dates"] == ["2026-06-14"]
+    assert item["confidence"] == 88.0
+    assert item["missing_fields"] == []
+
+
+def test_loop_evidence_ledger_marks_missing_contract_fields():
+    ledger = TaskService._build_loop_evidence_ledger(
+        [
+            {
+                "stage_id": "weak-evidence",
+                "stage_name": "Weak Evidence",
+                "role": "researcher",
+                "model": "test-model",
+                "status": "completed",
+                "summary": "Conclusion only.",
+                "output": "France is likely to win because the squad is strong.",
+                "evidence_required": ["source url"],
+                "expected_output": "verified evidence",
+            }
+        ]
+    )
+
+    item = ledger[0]
+    assert item["status"] == "missing"
+    assert item["evidence_score"] < 50
+    assert "来源/引用" in item["missing_fields"]
+    assert "置信度" in item["missing_fields"]
+
+
+def test_worldcup_loop_routes_five_agents_to_distinct_models(
+    isolated_history_storage,
+    isolated_model_control_storage,
+):
+    from app.backend.services import model_loader
+
+    custom_models = {
+        "deepseek-v4-flash": {
+            "model_id": "deepseek-v4-flash",
+            "display_name": "DeepSeek Flash",
+            "provider_id": "openai",
+            "upstream_model": "deepseek-v4-flash",
+            "priority": "medium",
+            "enabled": True,
+            "supported_preset_modes": [],
+            "supported_task_types": [],
+            "supported_roles": [],
+            "metadata": {},
+        },
+        "Doubao-Seed-2.0-lite": {
+            "model_id": "Doubao-Seed-2.0-lite",
+            "display_name": "Doubao Lite",
+            "provider_id": "openai",
+            "upstream_model": "Doubao-Seed-2.0-lite",
+            "priority": "medium",
+            "enabled": True,
+            "supported_preset_modes": [],
+            "supported_task_types": [],
+            "supported_roles": [],
+            "metadata": {},
+        },
+        "Kimi-K2.6": {
+            "model_id": "Kimi-K2.6",
+            "display_name": "Kimi K2.6",
+            "provider_id": "openai",
+            "upstream_model": "Kimi-K2.6",
+            "priority": "medium",
+            "enabled": True,
+            "supported_preset_modes": [],
+            "supported_task_types": [],
+            "supported_roles": [],
+            "metadata": {},
+        },
+        "GLM-5.1": {
+            "model_id": "GLM-5.1",
+            "display_name": "GLM 5.1",
+            "provider_id": "openai",
+            "upstream_model": "GLM-5.1",
+            "priority": "medium",
+            "enabled": True,
+            "supported_preset_modes": [],
+            "supported_task_types": [],
+            "supported_roles": [],
+            "metadata": {},
+        },
+        "deepseek-v4-pro": {
+            "model_id": "deepseek-v4-pro",
+            "display_name": "DeepSeek Pro",
+            "provider_id": "openai",
+            "upstream_model": "deepseek-v4-pro",
+            "priority": "medium",
+            "enabled": True,
+            "supported_preset_modes": [],
+            "supported_task_types": [],
+            "supported_roles": [],
+            "metadata": {},
+        },
+    }
+    model_loader.MODEL_OVERRIDES_PATH.write_text(
+        json.dumps({"models": {}, "custom_models": custom_models}),
+        encoding="utf-8",
+    )
+    clear_model_registry_service_cache()
+    clear_model_routing_service_cache()
+    clear_task_service_cache()
+
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/tasks",
+        json={
+            "prompt": "预测世界杯冠军，并展示五个 Agent 的判断。",
+            "loop_id": "worldcup-prediction-loop",
+        },
+    )
+    body = response.json()
+    stages = body["data"]["metadata"]["loop_run"]["stages"]
+    stage_models = [stage["model"] for stage in stages]
+
+    assert response.status_code == 200
+    assert body["data"]["provider"] == "loop-orchestrator"
+    assert len(stages) == 5
+    assert set(stage_models) == set(custom_models)
+    assert len(set(stage_models)) == 5
+    assert body["data"]["metadata"]["artifact_provenance"]["models"][0]["model_id"] == (
+        "deepseek-v4-flash"
+    )
 
 
 def test_tasks_endpoint_generates_document_artifact_from_prompt(

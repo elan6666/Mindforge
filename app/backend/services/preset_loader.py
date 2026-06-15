@@ -26,4 +26,3 @@ def load_all_presets() -> dict[str, PresetDefinition]:
         preset = load_preset_file(path)
         presets[preset.preset_mode] = preset
     return presets
-

@@ -1,0 +1,47 @@
+<svg width="1800" height="1100" viewBox="0 0 1800 1100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1800" height="1100" fill="#030712"/>
+  <g filter="url(#deepBlur)">
+    <ellipse cx="1360" cy="230" rx="520" ry="300" fill="#10345C" fill-opacity="0.6"/>
+    <ellipse cx="520" cy="850" rx="600" ry="280" fill="#071B36" fill-opacity="0.78"/>
+    <ellipse cx="1160" cy="720" rx="370" ry="210" fill="#183A4E" fill-opacity="0.42"/>
+  </g>
+  <path d="M1515 140C1634 292 1658 488 1578 666C1498 844 1322 956 1124 960C926 964 746 860 660 686" stroke="url(#orbitA)" stroke-width="2.2"/>
+  <path d="M1668 196C1736 374 1704 570 1582 718C1460 866 1266 932 1078 890" stroke="url(#orbitB)" stroke-width="1.5"/>
+  <path d="M-68 696C244 574 506 566 718 672C930 778 1170 784 1500 630C1668 552 1788 466 1874 394" stroke="url(#signal)" stroke-width="1.6"/>
+  <g opacity="0.7">
+    <circle cx="1528" cy="162" r="3.5" fill="#9BE8FF"/>
+    <circle cx="1594" cy="350" r="2" fill="#D7B96C"/>
+    <circle cx="1460" cy="602" r="2.5" fill="#78D9FF"/>
+    <circle cx="1014" cy="902" r="3" fill="#BDEFFF"/>
+    <circle cx="315" cy="740" r="2" fill="#7892B6"/>
+    <circle cx="720" cy="330" r="1.8" fill="#E8F8FF"/>
+  </g>
+  <g opacity="0.18">
+    <path d="M1180 110L1180 1004" stroke="#9BE8FF"/>
+    <path d="M1380 92L1380 965" stroke="#9BE8FF"/>
+    <path d="M1520 150L1520 860" stroke="#D7B96C"/>
+    <path d="M860 260H1710" stroke="#9BE8FF"/>
+    <path d="M760 520H1640" stroke="#9BE8FF"/>
+    <path d="M914 790H1530" stroke="#D7B96C"/>
+  </g>
+  <defs>
+    <filter id="deepBlur" x="-260" y="-190" width="2260" height="1500" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="86"/>
+    </filter>
+    <linearGradient id="orbitA" x1="665" y1="684" x2="1630" y2="242" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9BE8FF" stop-opacity="0"/>
+      <stop offset="0.45" stop-color="#9BE8FF" stop-opacity="0.68"/>
+      <stop offset="1" stop-color="#D7B96C" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="orbitB" x1="1058" y1="886" x2="1694" y2="198" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D7B96C" stop-opacity="0"/>
+      <stop offset="0.54" stop-color="#D7B96C" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#9BE8FF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="-68" y1="696" x2="1874" y2="394" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9BE8FF" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#9BE8FF" stop-opacity="0.36"/>
+      <stop offset="1" stop-color="#9BE8FF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+</svg>

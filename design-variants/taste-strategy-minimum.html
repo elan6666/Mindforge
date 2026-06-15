@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>Mindforge Variant - Taste Strategy</title>
+    <style>
+      :root {
+        --black: #0d0d0c;
+        --white: #fcfcfa;
+        --line: #d9d9d2;
+        --soft: #f1f1ec;
+        --muted: #66665d;
+        --accent: #245bff;
+        --amber: #b66a00;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--white);
+        color: var(--black);
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, "PingFang SC", monospace;
+        font-size: 14px;
+      }
+
+      button,
+      textarea {
+        font: inherit;
+      }
+
+      .layout {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 72px 320px minmax(0, 1fr);
+      }
+
+      .mode-rail {
+        border-right: 1px solid var(--black);
+        background: var(--black);
+        color: var(--white);
+        display: grid;
+        align-content: start;
+        gap: 1px;
+      }
+
+      .mode {
+        height: 72px;
+        border: 0;
+        border-bottom: 1px solid #333;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        writing-mode: vertical-rl;
+        transform: rotate(180deg);
+      }
+
+      .mode.active {
+        background: var(--accent);
+      }
+
+      .brief {
+        border-right: 1px solid var(--line);
+        padding: 28px 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 28px;
+      }
+
+      .brand {
+        font-size: 24px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+
+      .principle {
+        font-size: 31px;
+        line-height: 1.04;
+        letter-spacing: -0.03em;
+        font-weight: 800;
+      }
+
+      .small {
+        color: var(--muted);
+        line-height: 1.65;
+      }
+
+      .cuts {
+        border-top: 1px solid var(--line);
+      }
+
+      .cut {
+        padding: 14px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .work {
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+        min-width: 0;
+      }
+
+      .header {
+        border-bottom: 1px solid var(--line);
+        padding: 22px 28px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .header h1 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .run {
+        border: 1px solid var(--black);
+        background: var(--black);
+        color: var(--white);
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+
+      .intake {
+        padding: 28px;
+        border-bottom: 1px solid var(--line);
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 280px;
+        gap: 24px;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 132px;
+        resize: vertical;
+        border: 1px solid var(--black);
+        background: transparent;
+        padding: 14px;
+        color: var(--black);
+      }
+
+      .rules {
+        display: grid;
+        gap: 8px;
+      }
+
+      .rule {
+        border-bottom: 1px solid var(--line);
+        padding: 0 0 9px;
+      }
+
+      .board {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        min-height: 0;
+      }
+
+      .lane {
+        border-right: 1px solid var(--line);
+        display: grid;
+        grid-template-rows: auto 1fr;
+      }
+
+      .lane:last-child {
+        border-right: 0;
+      }
+
+      .lane h2 {
+        margin: 0;
+        padding: 17px 20px;
+        border-bottom: 1px solid var(--line);
+        font-size: 14px;
+        background: var(--soft);
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 72px 1fr;
+        gap: 14px;
+        padding: 18px 20px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .key {
+        color: var(--muted);
+      }
+
+      .value strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+
+      .warn {
+        color: var(--amber);
+      }
+
+      @media (max-width: 1000px) {
+        .layout,
+        .intake,
+        .board {
+          grid-template-columns: 1fr;
+        }
+
+        .mode-rail {
+          display: flex;
+        }
+
+        .mode {
+          writing-mode: horizontal-tb;
+          transform: none;
+          width: 100%;
+          height: 48px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <nav class="mode-rail" aria-label="Taste navigation">
+        <button class="mode active">Forge</button>
+        <button class="mode">Team</button>
+        <button class="mode">Assets</button>
+        <button class="mode">Control</button>
+      </nav>
+      <aside class="brief">
+        <div class="brand">Mindforge</div>
+        <div class="principle">A command surface, not a feature catalog.</div>
+        <p class="small">Taste version cuts anything that does not help the user decide, delegate, verify, or preserve. Fewer objects. Stronger hierarchy. No decorative dashboard theater.</p>
+        <section class="cuts">
+          <div class="cut"><strong>Keep</strong><br /><span class="small">Forge, War Room, Model Arena, Artifact Library.</span></div>
+          <div class="cut"><strong>Cut</strong><br /><span class="small">Generic feature tiles, vague hero copy, ornamental metrics.</span></div>
+          <div class="cut"><strong>Moat</strong><br /><span class="small">The judgment layer: what should happen next and who owns it.</span></div>
+        </section>
+      </aside>
+      <main class="work">
+        <header class="header"><h1>Command Ledger / Code Forge</h1><button class="run">Run selected team</button></header>
+        <section class="intake">
+          <textarea>修复用户登录后偶发 500 错误。只要显示完成这件事所需的最少界面：任务、团队、证据、产物。</textarea>
+          <div class="rules">
+            <div class="rule"><strong>Team</strong><br /><span class="small">PM, Backend, Frontend, Reviewer</span></div>
+            <div class="rule"><strong>Model</strong><br /><span class="small">deepseek-v4-flash selected</span></div>
+            <div class="rule"><strong>Approval</strong><br /><span class="small warn">2 risky actions require consent</span></div>
+          </div>
+        </section>
+        <section class="board">
+          <div class="lane">
+            <h2>01 Decide</h2>
+            <div>
+              <div class="row"><div class="key">PM</div><div class="value"><strong>Scope fixed</strong><span class="small">登录、会话刷新、错误日志。</span></div></div>
+              <div class="row"><div class="key">Next</div><div class="value"><strong>Backend diagnosis</strong><span class="small">不展开多余入口。</span></div></div>
+            </div>
+          </div>
+          <div class="lane">
+            <h2>02 Verify</h2>
+            <div>
+              <div class="row"><div class="key">Evidence</div><div class="value"><strong>5 sources</strong><span class="small">error.log, auth.service.ts, feedback.md...</span></div></div>
+              <div class="row"><div class="key">Risk</div><div class="value"><strong class="warn">Needs approval</strong><span class="small">涉及认证逻辑变更。</span></div></div>
+            </div>
+          </div>
+          <div class="lane">
+            <h2>03 Preserve</h2>
+            <div>
+              <div class="row"><div class="key">Output</div><div class="value"><strong>fix-plan.md</strong><span class="small">可以继续编辑或导出。</span></div></div>
+              <div class="row"><div class="key">Memory</div><div class="value"><strong>Decision saved</strong><span class="small">进入项目记忆，而不是聊天海里。</span></div></div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script>
+      document.querySelectorAll(".mode").forEach((button) => {
+        button.addEventListener("click", () => {
+          document.querySelectorAll(".mode").forEach((item) => item.classList.remove("active"));
+          button.classList.add("active");
+        });
+      });
+    </script>
+  </body>
+</html>

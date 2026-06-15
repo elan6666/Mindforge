@@ -48,4 +48,3 @@ class PresetService:
 def get_preset_service() -> PresetService:
     """Return a cached preset registry."""
     return PresetService()
-

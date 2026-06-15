@@ -1,3 +1,65 @@
 {
-  "models": {}
+  "models": {},
+  "custom_models": {
+    "deepseek-v4-flash": {
+      "model_id": "deepseek-v4-flash",
+      "display_name": "deepseek-v4-flash",
+      "provider_id": "deepseek",
+      "upstream_model": "deepseek-v4-flash",
+      "priority": "medium",
+      "enabled": true,
+      "supported_preset_modes": [],
+      "supported_task_types": [],
+      "supported_roles": [],
+      "metadata": {}
+    },
+    "deepseek-v4-pro": {
+      "model_id": "deepseek-v4-pro",
+      "display_name": "deepseek-v4-pro",
+      "provider_id": "deepseek",
+      "upstream_model": "deepseek-v4-pro",
+      "priority": "medium",
+      "enabled": true,
+      "supported_preset_modes": [],
+      "supported_task_types": [],
+      "supported_roles": [],
+      "metadata": {}
+    },
+    "Doubao-Seed-2.0-lite": {
+      "model_id": "Doubao-Seed-2.0-lite",
+      "display_name": "Doubao-Seed-2.0-lite",
+      "provider_id": "火山",
+      "upstream_model": "Doubao-Seed-2.0-lite",
+      "priority": "medium",
+      "enabled": true,
+      "supported_preset_modes": [],
+      "supported_task_types": [],
+      "supported_roles": [],
+      "metadata": {}
+    },
+    "Kimi-K2.6": {
+      "model_id": "Kimi-K2.6",
+      "display_name": "Kimi-K2.6",
+      "provider_id": "火山",
+      "upstream_model": "Kimi-K2.6",
+      "priority": "medium",
+      "enabled": true,
+      "supported_preset_modes": [],
+      "supported_task_types": [],
+      "supported_roles": [],
+      "metadata": {}
+    },
+    "GLM-5.1": {
+      "model_id": "GLM-5.1",
+      "display_name": "GLM-5.1",
+      "provider_id": "火山",
+      "upstream_model": "GLM-5.1",
+      "priority": "medium",
+      "enabled": true,
+      "supported_preset_modes": [],
+      "supported_task_types": [],
+      "supported_roles": [],
+      "metadata": {}
+    }
+  }
 }

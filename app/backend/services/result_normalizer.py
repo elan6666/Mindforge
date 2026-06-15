@@ -21,4 +21,3 @@ def normalize_task_result(result: AdapterResult) -> TaskResponse:
         ),
         error_message=result.error_message,
     )
-

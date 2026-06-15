@@ -1,6 +1,6 @@
 """Schemas for generated document artifacts."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -14,6 +14,9 @@ class ArtifactExportRequest(BaseModel):
     content: str = Field(..., min_length=1)
     format: ArtifactFormat
     source_task_id: str | None = None
+    loop_id: str | None = None
+    loop_name: str | None = None
+    provenance: dict[str, Any] = Field(default_factory=dict)
 
 
 class ArtifactSummary(BaseModel):
@@ -27,4 +30,7 @@ class ArtifactSummary(BaseModel):
     size_bytes: int
     created_at: str
     source_task_id: str | None = None
+    loop_id: str | None = None
+    loop_name: str | None = None
+    provenance: dict[str, Any] = Field(default_factory=dict)
     download_url: str

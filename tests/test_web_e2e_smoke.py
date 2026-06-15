@@ -34,10 +34,21 @@ def test_local_web_app_smoke():
         expect(page.get_by_role("heading", name="Mindforge 控制工作台")).to_be_visible()
         expect(page.get_by_label("任务描述")).to_be_visible()
 
-        page.get_by_role("button", name="项目 空间").click()
+        page.get_by_role("button", name="项目空间 Project Memory").click()
         expect(page.get_by_role("heading", name="项目空间")).to_be_visible()
 
-        page.get_by_role("button", name="工具 MCP/Skills").click()
+        page.get_by_role("button", name="Skills / MCP 能力插件中心").click()
         expect(page.get_by_role("heading", name="工具与 Skills 中心")).to_be_visible()
+
+        page.get_by_role("button", name="Code Forge 代码工程").click()
+        expect(page.get_by_role("heading", name="Code Forge")).to_be_visible()
+        expect(page.get_by_text("Project Manager")).to_be_visible()
+
+        page.get_by_role("button", name="Agent War Room 多 Agent 作战室").click()
+        expect(page.get_by_role("heading", name="Agent War Room")).to_be_visible()
+        expect(page.get_by_text("证据 / 工具 / 模型")).to_be_visible()
+
+        page.get_by_role("button", name="Artifact Library 产物库").click()
+        expect(page.get_by_role("heading", name="Artifact Library")).to_be_visible()
 
         browser.close()

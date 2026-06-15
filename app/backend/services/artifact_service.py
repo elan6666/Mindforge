@@ -47,6 +47,9 @@ class ArtifactService:
             size_bytes=len(data),
             created_at=datetime.now(UTC).isoformat(),
             source_task_id=payload.source_task_id,
+            loop_id=payload.loop_id,
+            loop_name=payload.loop_name,
+            provenance=payload.provenance,
             download_url=f"/api/artifacts/{artifact_id}/download",
         )
         records = self._load()

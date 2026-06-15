@@ -1,0 +1,33 @@
+<svg width="1800" height="1100" viewBox="0 0 1800 1100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1800" height="1100" fill="#F7F8FA"/>
+  <g filter="url(#blurA)">
+    <ellipse cx="420" cy="180" rx="420" ry="250" fill="#FFFFFF" fill-opacity="0.92"/>
+    <ellipse cx="1340" cy="210" rx="360" ry="230" fill="#E9F2FF" fill-opacity="0.72"/>
+    <ellipse cx="1140" cy="880" rx="540" ry="240" fill="#F1F4F8" fill-opacity="0.88"/>
+  </g>
+  <path d="M-120 720C230 510 456 476 770 584C1084 692 1270 644 1905 292" stroke="url(#curveA)" stroke-width="2"/>
+  <path d="M-80 790C272 606 520 596 850 706C1179 816 1376 780 1870 528" stroke="url(#curveB)" stroke-width="1.4"/>
+  <path d="M1280 72C1378 154 1435 258 1445 385C1459 560 1360 724 1206 802" stroke="#B7C7D9" stroke-opacity="0.28" stroke-width="1.5"/>
+  <path d="M1324 102C1428 218 1462 361 1416 500C1372 632 1276 730 1136 782" stroke="#0071E3" stroke-opacity="0.16" stroke-width="1.5"/>
+  <g opacity="0.5">
+    <circle cx="1480" cy="164" r="3" fill="#0071E3"/>
+    <circle cx="1514" cy="248" r="2" fill="#7DA7D9"/>
+    <circle cx="1320" cy="315" r="2" fill="#9EB4CC"/>
+    <circle cx="1188" cy="812" r="2.5" fill="#0071E3"/>
+  </g>
+  <defs>
+    <filter id="blurA" x="-260" y="-180" width="2260" height="1420" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="72"/>
+    </filter>
+    <linearGradient id="curveA" x1="-120" y1="720" x2="1905" y2="292" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0.42" stop-color="#9ABCE8" stop-opacity="0.36"/>
+      <stop offset="1" stop-color="#0071E3" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="curveB" x1="-80" y1="790" x2="1870" y2="528" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#86868B" stop-opacity="0"/>
+      <stop offset="0.54" stop-color="#C9D5E4" stop-opacity="0.48"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+</svg>

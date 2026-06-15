@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from time import perf_counter
 from urllib.parse import parse_qs, unquote, urlparse
 from uuid import uuid4
 
@@ -27,7 +28,12 @@ from app.backend.schemas.model import ModelSelection
 from app.backend.schemas.preset import PresetDefinition
 from app.backend.schemas.repository import RepoAnalysisResult
 from app.backend.schemas.rule_template import RuleTemplateSelection
-from app.backend.schemas.task import TaskRequest, TaskResponse, TaskResponseData
+from app.backend.schemas.task import (
+    LoopStageRetryRequest,
+    TaskRequest,
+    TaskResponse,
+    TaskResponseData,
+)
 from app.backend.services.approval_service import (
     ApprovalError,
     ApprovalService,
@@ -54,6 +60,7 @@ from app.backend.services.file_context_service import (
     get_file_context_service,
 )
 from app.backend.services.mcp_service import get_mcp_service
+from app.backend.services.loop_service import get_loop_service
 from app.backend.services.model_routing_service import (
     ModelRoutingError,
     ModelRoutingService,
@@ -99,6 +106,18 @@ CURRENT_DOCUMENT_TERMS = (
 PYTHON_CODE_BLOCK_PATTERN = re.compile(
     r"```(?:python|py)\s*(?P<code>.*?)```",
     re.IGNORECASE | re.DOTALL,
+)
+EVIDENCE_URL_PATTERN = re.compile(r"https?://[^\s)>\]]+", re.IGNORECASE)
+EVIDENCE_SOURCE_PATTERN = re.compile(
+    r"(?:source|sources|reference|references|来源|出处|引用|文件|命令)\s*[:：]\s*(?P<value>[^\n；;]+)",
+    re.IGNORECASE,
+)
+EVIDENCE_DATE_PATTERN = re.compile(
+    r"(?:20\d{2}[-/年.]\d{1,2}(?:[-/月.]\d{1,2}日?)?|20\d{2}|截至\s*\d{1,2}\s*月\s*\d{1,2}\s*日?)"
+)
+COUNTER_EVIDENCE_PATTERN = re.compile(
+    r"(?:反证|反例|风险|不确定|counter[- ]?evidence|counterexample|risk|uncertainty|limitation)",
+    re.IGNORECASE,
 )
 CODE_EXECUTION_TIMEOUT_SECONDS = 8
 TEXT_LIMIT = 4000
@@ -244,6 +263,200 @@ class TaskService:
             response,
         )
         return response
+
+    def retry_loop_stage(
+        self,
+        task_id: str,
+        stage_id: str,
+        payload: LoopStageRetryRequest,
+    ):
+        """Retry one persisted Loop stage and write the refreshed trace to history."""
+        detail = self.history_service.get_task_detail(task_id)
+        if detail is None:
+            raise ValueError(f"Unknown task '{task_id}'.")
+        metadata = dict(detail.metadata)
+        loop_run = metadata.get("loop_run")
+        if not isinstance(loop_run, dict):
+            raise ValueError(f"Task '{task_id}' does not contain a Loop run.")
+        stages = loop_run.get("stages")
+        if not isinstance(stages, list):
+            raise ValueError(f"Task '{task_id}' has no Loop stages to retry.")
+
+        stage_index = next(
+            (
+                index
+                for index, item in enumerate(stages)
+                if isinstance(item, dict) and str(item.get("stage_id")) == stage_id
+            ),
+            None,
+        )
+        if stage_index is None:
+            raise ValueError(f"Unknown Loop stage '{stage_id}'.")
+
+        request = TaskRequest.model_validate(detail.request_payload)
+        loop_id = str(loop_run.get("loop_id") or request.loop_id or "")
+        loop = get_loop_service().get_loop(loop_id)
+        if loop is None:
+            raise ValueError(f"Unknown loop '{loop_id}'.")
+        step = next((item for item in loop.steps if item.step_id == stage_id), None)
+        if step is None:
+            raise ValueError(f"Loop '{loop_id}' has no stage '{stage_id}'.")
+
+        prepared = self._prepare_execution(request)
+        if isinstance(prepared, TaskResponse):
+            raise ValueError(prepared.error_message or prepared.message)
+        normalized_request = self._build_normalized_request(prepared)
+        role = next(
+            (item for item in loop.roles if item.role_id == step.owner_role),
+            None,
+        )
+        role_id = role.role_id if role is not None else step.owner_role
+        role_models = self._resolve_loop_role_models(prepared, loop)
+        model_id = payload.model_override or str(
+            (stages[stage_index] if isinstance(stages[stage_index], dict) else {}).get("model")
+            or ""
+        )
+        try:
+            model_selection = self.model_router.resolve_for_role(
+                preset_mode=prepared.preset.preset_mode,
+                task_type=prepared.execution_payload.task_type,
+                role=role_id,
+                explicit_model=model_id or None,
+                prefer_user_default=self._prefer_user_model_defaults(),
+            )
+        except ModelRoutingError:
+            model_selection = role_models[role_id]
+
+        previous_summaries = [
+            {
+                "stage_id": str(item.get("stage_id") or ""),
+                "stage_name": str(item.get("stage_name") or ""),
+                "role": str(item.get("role") or ""),
+                "model": str(item.get("model") or ""),
+                "summary": str(item.get("summary") or ""),
+            }
+            for item in stages[:stage_index]
+            if isinstance(item, dict)
+        ]
+        retry_prompt = self._compose_loop_stage_prompt(
+            base_prompt=str(normalized_request.get("prompt") or request.prompt),
+            loop_name=loop.name,
+            role_name=role.name if role is not None else role_id,
+            role_id=role_id,
+            role_responsibility=(
+                role.responsibility if role is not None else "Run this Loop stage."
+            ),
+            step_title=step.title,
+            step_instruction=step.instruction,
+            expected_output=step.expected_output,
+            evidence_required=step.evidence_required,
+            evidence_rules=loop.evidence_rules,
+            previous_summaries=previous_summaries,
+            order=stage_index + 1,
+            total=len(loop.steps),
+        )
+        if payload.note:
+            retry_prompt = f"{retry_prompt}\n\nRetry operator note:\n{payload.note}"
+
+        started_at = datetime.now().astimezone().isoformat()
+        start = perf_counter()
+        result = self.adapter.run_task(
+            {
+                **normalized_request,
+                "prompt": retry_prompt,
+                "model": model_selection.upstream_model,
+                "provider_id": model_selection.provider_id,
+                "metadata": {
+                    **(
+                        normalized_request.get("metadata")
+                        if isinstance(normalized_request.get("metadata"), dict)
+                        else {}
+                    ),
+                    "loop_id": loop.loop_id,
+                    "loop_name": loop.name,
+                    "loop_role": role_id,
+                    "loop_stage": step.step_id,
+                    "loop_stage_name": step.title,
+                    "loop_stage_order": stage_index + 1,
+                    "loop_retry": True,
+                    "loop_retry_note": payload.note,
+                    "loop_model": model_selection.model_id,
+                    "loop_model_selection": model_selection.model_dump(mode="json"),
+                    "loop_previous_summaries": previous_summaries,
+                },
+            }
+        )
+        duration_ms = int((perf_counter() - start) * 1000)
+        completed_at = datetime.now().astimezone().isoformat()
+
+        original_stage = stages[stage_index] if isinstance(stages[stage_index], dict) else {}
+        retry_count = int(original_stage.get("retry_count") or 0) + 1
+        summary = self._summarize_output(result.output)
+        stages[stage_index] = {
+            **original_stage,
+            "order": stage_index + 1,
+            "stage_id": step.step_id,
+            "stage_name": step.title,
+            "role": role_id,
+            "role_name": role.name if role is not None else role_id,
+            "status": result.status,
+            "summary": summary or step.instruction,
+            "output": result.output,
+            "evidence_required": step.evidence_required,
+            "expected_output": step.expected_output,
+            "model": model_selection.model_id,
+            "model_selection": model_selection.model_dump(mode="json"),
+            "provider": result.provider,
+            "metadata": result.metadata,
+            "error_message": result.error_message,
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "duration_ms": duration_ms,
+            "attempt": retry_count + 1,
+            "retry_count": retry_count,
+            "retry_note": payload.note,
+        }
+
+        failed_stage = next(
+            (
+                str(item.get("stage_id") or "")
+                for item in stages
+                if isinstance(item, dict) and item.get("status") != "completed"
+            ),
+            None,
+        )
+        status = "failed" if failed_stage else "completed"
+        loop_run["status"] = status
+        loop_run["stages"] = stages
+        loop_run["completed_at"] = completed_at
+        self._decorate_loop_run_runtime(loop_run)
+        metadata["loop_run"] = loop_run
+        metadata["failed_stage"] = failed_stage
+        metadata["artifact_provenance"] = self._build_artifact_provenance(metadata)
+        output = self._format_loop_output(
+            loop_name=str(loop_run.get("loop_name") or loop.name),
+            user_prompt=request.prompt,
+            stages=[stage for stage in stages if isinstance(stage, dict)],
+            failed_stage=failed_stage,
+        )
+        updated = self.history_service.update_task_result_metadata(
+            task_id,
+            metadata=metadata,
+            output=output,
+            status=status,
+            message=(
+                f"Loop stage '{stage_id}' retried successfully."
+                if status == "completed"
+                else f"Loop stage '{stage_id}' retry finished with a failure."
+            ),
+            provider="loop-orchestrator",
+            error_message=(
+                f"Loop stage '{failed_stage}' failed." if failed_stage else None
+            ),
+        )
+        if updated is None:
+            raise ValueError(f"Unknown task '{task_id}'.")
+        return updated
 
     def _prepare_execution(self, payload: TaskRequest) -> PreparedTaskExecution | TaskResponse:
         """Resolve presets, routing, templates, and repository context."""
@@ -477,6 +690,49 @@ class TaskService:
     def _build_execution_metadata(payload: TaskRequest) -> dict[str, object]:
         """Merge structured composer fields into public task metadata."""
         metadata: dict[str, object] = dict(payload.metadata)
+        if payload.loop_id:
+            loop = get_loop_service().get_loop(payload.loop_id)
+            if loop is not None:
+                metadata["loop_id"] = loop.loop_id
+                metadata["loop"] = {
+                    "loop_id": loop.loop_id,
+                    "name": loop.name,
+                    "version": loop.version,
+                    "forge_id": loop.forge_id,
+                    "description": loop.description,
+                    "source": loop.source,
+                }
+                metadata["loop_run"] = {
+                    "loop_id": loop.loop_id,
+                    "loop_name": loop.name,
+                    "version": loop.version,
+                    "forge_id": loop.forge_id,
+                    "status": "prepared",
+                    "roles": [
+                        role.model_dump(mode="json")
+                        for role in loop.roles
+                    ],
+                    "stages": [
+                        {
+                            "order": index,
+                            "stage_id": step.step_id,
+                            "stage_name": step.title,
+                            "role": step.owner_role,
+                            "status": "pending",
+                            "summary": step.instruction,
+                            "output": "",
+                            "evidence_required": step.evidence_required,
+                            "expected_output": step.expected_output,
+                        }
+                        for index, step in enumerate(loop.steps, start=1)
+                    ],
+                    "evidence_rules": loop.evidence_rules,
+                    "artifact_outputs": [
+                        artifact.model_dump(mode="json")
+                        for artifact in loop.artifact_outputs
+                    ],
+                    "improvement_count": loop.improvement_count,
+                }
         if payload.project_id:
             metadata["project_id"] = payload.project_id
         if payload.conversation_id:
@@ -1083,7 +1339,27 @@ class TaskService:
                 "openhands_mode": self.settings.openhands_mode,
             },
         )
-        if prepared.preset.preset_mode in {"code-engineering", "paper-revision"}:
+        if prepared.execution_payload.loop_id:
+            try:
+                response = self._execute_loop_prepared(prepared, normalized_request)
+            except ModelRoutingError as exc:
+                return TaskResponse(
+                    status="failed",
+                    message="Model routing failed during Loop execution setup.",
+                    data=TaskResponseData(
+                        output="",
+                        provider="model-routing",
+                        metadata={
+                            "task_id": task_id,
+                            "loop_id": prepared.execution_payload.loop_id,
+                            "requested_role_model_overrides": prepared.requested_payload.role_model_overrides,
+                            "effective_role_model_overrides": prepared.effective_role_model_overrides,
+                            "approval": approval.model_dump() if approval is not None else None,
+                        },
+                    ),
+                    error_message=str(exc),
+                )
+        elif prepared.preset.preset_mode in {"code-engineering", "paper-revision"}:
             try:
                 response = self.orchestrator.execute_preset(
                     prepared.execution_payload,
@@ -1121,16 +1397,718 @@ class TaskService:
             )
             response = normalize_task_result(result)
 
-        response.data.metadata.update(
-            {
-                **self._build_common_metadata(prepared, task_id=task_id),
-                "approval": approval.model_dump() if approval is not None else None,
-            }
-        )
+        response.data.metadata = {
+            **self._build_common_metadata(prepared, task_id=task_id),
+            **response.data.metadata,
+            "approval": approval.model_dump() if approval is not None else None,
+        }
+        self._attach_loop_run_trace(response)
         self._attach_canvas_artifacts(response)
         self._attach_generated_document_artifact(response)
         self._attach_execution_report(response)
         return response
+
+    def _execute_loop_prepared(
+        self,
+        prepared: PreparedTaskExecution,
+        normalized_request: dict[str, object],
+    ) -> TaskResponse:
+        """Execute a portable Loop as concrete per-role model calls."""
+        loop_id = prepared.execution_payload.loop_id
+        loop = get_loop_service().get_loop(loop_id or "")
+        if loop is None:
+            return TaskResponse(
+                status="failed",
+                message="Loop execution failed.",
+                data=TaskResponseData(
+                    output="",
+                    provider="loop-orchestrator",
+                    metadata={"loop_id": loop_id},
+                ),
+                error_message=f"Unknown loop '{loop_id}'.",
+            )
+
+        role_models = self._resolve_loop_role_models(prepared, loop)
+        stages: list[dict[str, object]] = []
+        previous_summaries: list[dict[str, object]] = []
+        failed_stage: str | None = None
+
+        for order, step in enumerate(loop.steps, start=1):
+            role = next(
+                (item for item in loop.roles if item.role_id == step.owner_role),
+                None,
+            )
+            role_id = role.role_id if role is not None else step.owner_role
+            model_selection = role_models[role_id]
+            stage_payload = {
+                **normalized_request,
+                "prompt": self._compose_loop_stage_prompt(
+                    base_prompt=str(normalized_request.get("prompt") or ""),
+                    loop_name=loop.name,
+                    role_name=role.name if role is not None else role_id,
+                    role_id=role_id,
+                    role_responsibility=(
+                        role.responsibility if role is not None else "Run this Loop stage."
+                    ),
+                    step_title=step.title,
+                    step_instruction=step.instruction,
+                    expected_output=step.expected_output,
+                    evidence_required=step.evidence_required,
+                    evidence_rules=loop.evidence_rules,
+                    previous_summaries=previous_summaries,
+                    order=order,
+                    total=len(loop.steps),
+                ),
+                "model": model_selection.upstream_model,
+                "provider_id": model_selection.provider_id,
+                "metadata": {
+                    **(
+                        normalized_request.get("metadata")
+                        if isinstance(normalized_request.get("metadata"), dict)
+                        else {}
+                    ),
+                    "loop_id": loop.loop_id,
+                    "loop_name": loop.name,
+                    "loop_role": role_id,
+                    "loop_stage": step.step_id,
+                    "loop_stage_name": step.title,
+                    "loop_stage_order": order,
+                    "loop_model": model_selection.model_id,
+                    "loop_model_selection": model_selection.model_dump(mode="json"),
+                    "loop_previous_summaries": previous_summaries,
+                },
+            }
+            started_at = datetime.now().astimezone().isoformat()
+            start = perf_counter()
+            result = self.adapter.run_task(stage_payload)
+            duration_ms = int((perf_counter() - start) * 1000)
+            completed_at = datetime.now().astimezone().isoformat()
+            summary = self._summarize_output(result.output)
+            stage = {
+                "order": order,
+                "stage_id": step.step_id,
+                "stage_name": step.title,
+                "role": role_id,
+                "role_name": role.name if role is not None else role_id,
+                "status": result.status,
+                "summary": summary or step.instruction,
+                "output": result.output,
+                "evidence_required": step.evidence_required,
+                "expected_output": step.expected_output,
+                "model": model_selection.model_id,
+                "model_selection": model_selection.model_dump(mode="json"),
+                "provider": result.provider,
+                "metadata": result.metadata,
+                "error_message": result.error_message,
+                "started_at": started_at,
+                "completed_at": completed_at,
+                "duration_ms": duration_ms,
+                "attempt": 1,
+                "retry_count": 0,
+            }
+            stages.append(stage)
+            previous_summaries.append(
+                {
+                    "stage_id": step.step_id,
+                    "stage_name": step.title,
+                    "role": role_id,
+                    "model": model_selection.model_id,
+                    "summary": summary,
+                }
+            )
+            if result.status != "completed":
+                failed_stage = step.step_id
+                break
+
+        status = "failed" if failed_stage else "completed"
+        loop_run = {
+            "loop_id": loop.loop_id,
+            "loop_name": loop.name,
+            "version": loop.version,
+            "forge_id": loop.forge_id,
+            "status": status,
+            "roles": [role.model_dump(mode="json") for role in loop.roles],
+            "stages": stages,
+            "evidence_rules": loop.evidence_rules,
+            "artifact_outputs": [
+                artifact.model_dump(mode="json") for artifact in loop.artifact_outputs
+            ],
+            "improvement_count": loop.improvement_count,
+            "completed_at": datetime.now().astimezone().isoformat(),
+        }
+        self._decorate_loop_run_runtime(loop_run)
+        return TaskResponse(
+            status=status,
+            message=(
+                "Loop executed successfully."
+                if status == "completed"
+                else "Loop execution failed."
+            ),
+            data=TaskResponseData(
+                output=self._format_loop_output(
+                    loop_name=loop.name,
+                    user_prompt=prepared.execution_payload.prompt,
+                    stages=stages,
+                    failed_stage=failed_stage,
+                ),
+                provider="loop-orchestrator",
+                metadata={
+                    "loop_id": loop.loop_id,
+                    "loop_run": loop_run,
+                    "loop_model_routing": {
+                        role_id: selection.model_dump(mode="json")
+                        for role_id, selection in role_models.items()
+                    },
+                    "failed_stage": failed_stage,
+                },
+            ),
+            error_message=(
+                f"Loop stage '{failed_stage}' failed." if failed_stage else None
+            ),
+        )
+
+    def _resolve_loop_role_models(
+        self,
+        prepared: PreparedTaskExecution,
+        loop: object,
+    ) -> dict[str, ModelSelection]:
+        """Assign models to Loop roles, preferring distinct user models."""
+        roles = list(getattr(loop, "roles", []) or [])
+        explicit = dict(prepared.effective_role_model_overrides)
+        assigned: dict[str, ModelSelection] = {}
+        used_model_ids: set[str] = set()
+
+        preferred_ids = self._preferred_loop_model_ids(str(getattr(loop, "loop_id", "")))
+        custom_models = [
+            model
+            for model in self.model_router.registry.iter_enabled_custom_models()
+            if model.model_id not in preferred_ids
+        ]
+        fallback_ids = [*preferred_ids, *[model.model_id for model in custom_models]]
+
+        for index, role in enumerate(roles):
+            role_id = str(getattr(role, "role_id", "") or f"role-{index + 1}")
+            model_id = explicit.get(role_id)
+            if not model_id:
+                model_id = self._next_loop_model_id(
+                    fallback_ids=fallback_ids,
+                    used_model_ids=used_model_ids,
+                    role_index=index,
+                )
+            selection = self.model_router.resolve_for_role(
+                preset_mode=prepared.preset.preset_mode,
+                task_type=prepared.execution_payload.task_type,
+                role=role_id,
+                explicit_model=model_id,
+                prefer_user_default=self._prefer_user_model_defaults(),
+            )
+            assigned[role_id] = selection
+            used_model_ids.add(selection.model_id)
+        return assigned
+
+    def _next_loop_model_id(
+        self,
+        *,
+        fallback_ids: list[str],
+        used_model_ids: set[str],
+        role_index: int,
+    ) -> str | None:
+        """Return the next enabled model id while avoiding repeats when possible."""
+        valid_ids = [
+            model_id
+            for model_id in fallback_ids
+            if self.model_router.registry.get_model(model_id) is not None
+        ]
+        for model_id in valid_ids:
+            if model_id not in used_model_ids:
+                return model_id
+        if valid_ids:
+            return valid_ids[role_index % len(valid_ids)]
+        return None
+
+    @staticmethod
+    def _preferred_loop_model_ids(loop_id: str) -> list[str]:
+        """Return role-order model preferences for built-in demo Loops."""
+        if loop_id != "worldcup-prediction-loop":
+            return []
+        return [
+            "deepseek-v4-flash",
+            "Doubao-Seed-2.0-lite",
+            "Kimi-K2.6",
+            "GLM-5.1",
+            "deepseek-v4-pro",
+        ]
+
+    @staticmethod
+    def _compose_loop_stage_prompt(
+        *,
+        base_prompt: str,
+        loop_name: str,
+        role_name: str,
+        role_id: str,
+        role_responsibility: str,
+        step_title: str,
+        step_instruction: str,
+        expected_output: str,
+        evidence_required: list[str],
+        evidence_rules: list[str],
+        previous_summaries: list[dict[str, object]],
+        order: int,
+        total: int,
+    ) -> str:
+        """Create one Loop stage prompt for a concrete role/model call."""
+        lines = [
+            f"Loop: {loop_name}",
+            f"Stage: {order}/{total} - {step_title}",
+            f"Agent: {role_name} ({role_id})",
+            f"Agent responsibility: {role_responsibility}",
+            f"Stage instruction: {step_instruction}",
+            f"Expected output: {expected_output or 'Role-specific stage output'}",
+            "",
+            "User request:",
+            base_prompt,
+        ]
+        if previous_summaries:
+            lines.extend(["", "Previous Loop stage summaries:"])
+            for item in previous_summaries:
+                lines.append(
+                    "- "
+                    f"{item.get('stage_name')} / {item.get('role')} / "
+                    f"{item.get('model')}: {item.get('summary')}"
+                )
+        if evidence_rules:
+            lines.extend(["", "Evidence rules:"])
+            lines.extend(f"- {rule}" for rule in evidence_rules)
+        lines.extend(
+            [
+                "",
+                "Evidence verification contract:",
+                "- Include an Evidence table or bullets with source/reference, date or observed period, claim, and why it matters.",
+                "- Include Counter-evidence or risk explicitly.",
+                "- Include Confidence as a percentage.",
+                "- If the stage uses project evidence, cite file path, command, screenshot, test output, or task id.",
+                "- If the stage uses external/current-world evidence, cite a URL or source name plus publication/observation date.",
+            ]
+        )
+        if evidence_required:
+            lines.extend(["", "Stage evidence requirements:"])
+            lines.extend(f"- {item}" for item in evidence_required)
+        lines.extend(
+            [
+                "",
+                "Return only this agent's concise, evidence-aware contribution.",
+                "Do not skip the evidence contract; the runtime will mark missing fields in Evidence Ledger.",
+            ]
+        )
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_loop_output(
+        *,
+        loop_name: str,
+        user_prompt: str,
+        stages: list[dict[str, object]],
+        failed_stage: str | None,
+    ) -> str:
+        """Render Loop stage outputs into a single user-facing report."""
+        lines = [
+            "[loop-orchestration]",
+            f"loop: {loop_name}",
+            f"user request: {user_prompt}",
+            "",
+        ]
+        for stage in stages:
+            lines.extend(
+                [
+                    (
+                        f"## Stage {stage.get('order')}: {stage.get('stage_name')} "
+                        f"- {stage.get('role_name') or stage.get('role')} "
+                        f"[{stage.get('model')}]"
+                    ),
+                    str(stage.get("output") or ""),
+                    "",
+                ]
+            )
+        lines.append("## Loop Summary")
+        lines.append(f"completed stages: {len([s for s in stages if s.get('status') == 'completed'])}/{len(stages)}")
+        if failed_stage:
+            lines.append(f"failed stage: {failed_stage}")
+        elif stages:
+            lines.append(f"final stage: {stages[-1].get('stage_name')}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _decorate_loop_run_runtime(loop_run: dict[str, object]) -> None:
+        """Attach runtime-only Loop observability fields."""
+        raw_stages = loop_run.get("stages")
+        stages = [stage for stage in raw_stages if isinstance(stage, dict)] if isinstance(raw_stages, list) else []
+        loop_run["runtime_version"] = "loop-runtime-v2"
+        loop_run["timeline"] = [
+            {
+                "order": stage.get("order"),
+                "stage_id": stage.get("stage_id"),
+                "stage_name": stage.get("stage_name"),
+                "role": stage.get("role"),
+                "model": stage.get("model"),
+                "status": stage.get("status"),
+                "started_at": stage.get("started_at"),
+                "completed_at": stage.get("completed_at"),
+                "duration_ms": int(stage.get("duration_ms") or 0),
+                "attempt": int(stage.get("attempt") or 1),
+                "retry_count": int(stage.get("retry_count") or 0),
+            }
+            for stage in stages
+        ]
+        loop_run["model_performance"] = TaskService._build_loop_model_performance(stages)
+        loop_run["evidence_ledger"] = TaskService._build_loop_evidence_ledger(stages)
+        loop_run["improve_suggestions"] = TaskService._build_loop_improve_suggestions(
+            loop_run,
+            stages,
+        )
+        loop_run["total_duration_ms"] = sum(
+            int(stage.get("duration_ms") or 0) for stage in stages
+        )
+        loop_run["runtime_controls"] = {
+            "can_retry_stage": True,
+            "can_improve_loop": True,
+            "can_export_trace": True,
+        }
+
+    @staticmethod
+    def _build_loop_model_performance(
+        stages: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        """Summarize observed model behavior across Loop stages."""
+        models: dict[str, dict[str, object]] = {}
+        for stage in stages:
+            model_id = str(stage.get("model") or "unknown")
+            entry = models.setdefault(
+                model_id,
+                {
+                    "model_id": model_id,
+                    "provider": stage.get("provider"),
+                    "roles": [],
+                    "stages": [],
+                    "completed_count": 0,
+                    "failed_count": 0,
+                    "total_duration_ms": 0,
+                    "total_tokens": 0,
+                    "confidences": [],
+                },
+            )
+            role = str(stage.get("role") or "")
+            if role and role not in entry["roles"]:
+                entry["roles"].append(role)
+            entry["stages"].append(stage.get("stage_id"))
+            if stage.get("status") == "completed":
+                entry["completed_count"] = int(entry["completed_count"]) + 1
+            else:
+                entry["failed_count"] = int(entry["failed_count"]) + 1
+            entry["total_duration_ms"] = int(entry["total_duration_ms"]) + int(
+                stage.get("duration_ms") or 0
+            )
+            usage = (
+                stage.get("metadata", {}).get("usage")
+                if isinstance(stage.get("metadata"), dict)
+                else None
+            )
+            if isinstance(usage, dict):
+                token_count = (
+                    usage.get("total_tokens")
+                    or usage.get("total")
+                    or usage.get("completion_tokens")
+                    or usage.get("output_tokens")
+                    or 0
+                )
+                try:
+                    entry["total_tokens"] = int(entry["total_tokens"]) + int(token_count)
+                except (TypeError, ValueError):
+                    pass
+            confidence = TaskService._extract_confidence(stage.get("output"))
+            if confidence is not None:
+                entry["confidences"].append(confidence)
+
+        performance = []
+        for entry in models.values():
+            confidences = entry.pop("confidences")
+            confidence_count = len(confidences) if isinstance(confidences, list) else 0
+            entry["average_confidence"] = (
+                round(sum(confidences) / confidence_count, 1)
+                if confidence_count
+                else None
+            )
+            performance.append(entry)
+        return sorted(
+            performance,
+            key=lambda item: str(item.get("model_id") or ""),
+        )
+
+    @staticmethod
+    def _build_loop_evidence_ledger(
+        stages: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        """Build a compact evidence verification ledger from stage outputs."""
+        ledger: list[dict[str, object]] = []
+        for stage in stages:
+            requirements = stage.get("evidence_required")
+            required_items = (
+                [str(item) for item in requirements if str(item).strip()]
+                if isinstance(requirements, list)
+                else []
+            )
+            output = str(stage.get("output") or "")
+            verification = TaskService._verify_stage_evidence(output, required_items)
+            if stage.get("status") != "completed" or not output.strip():
+                verification["status"] = "missing"
+                verification["evidence_score"] = 0
+            ledger.append(
+                {
+                    "stage_id": stage.get("stage_id"),
+                    "stage_name": stage.get("stage_name"),
+                    "role": stage.get("role"),
+                    "model": stage.get("model"),
+                    "status": verification["status"],
+                    "evidence_score": verification["evidence_score"],
+                    "requirements": verification["requirements"],
+                    "checks": verification["checks"],
+                    "sources": verification["sources"],
+                    "dates": verification["dates"],
+                    "confidence": verification["confidence"],
+                    "missing_fields": verification["missing_fields"],
+                    "counter_evidence_present": verification["counter_evidence_present"],
+                    "expected_output": stage.get("expected_output"),
+                    "summary": stage.get("summary"),
+                }
+            )
+        return ledger
+
+    @staticmethod
+    def _verify_stage_evidence(
+        output: str,
+        required_items: list[str],
+    ) -> dict[str, object]:
+        """Validate the evidence contract for one stage output."""
+        text = str(output or "")
+        sources = TaskService._extract_evidence_sources(text)
+        dates = TaskService._extract_evidence_dates(text)
+        confidence = TaskService._extract_confidence(text)
+        counter_present = bool(COUNTER_EVIDENCE_PATTERN.search(text))
+        requirements = [
+            {
+                "requirement": item,
+                "status": (
+                    "provided"
+                    if TaskService._requirement_is_satisfied(text, item)
+                    else "missing"
+                ),
+            }
+            for item in required_items
+        ]
+        checks = [
+            {
+                "field": "source_reference",
+                "label": "来源/引用",
+                "status": "provided" if sources else "missing",
+            },
+            {
+                "field": "source_date",
+                "label": "日期/时间范围",
+                "status": "provided" if dates else "missing",
+            },
+            {
+                "field": "counter_evidence",
+                "label": "反证/风险",
+                "status": "provided" if counter_present else "missing",
+            },
+            {
+                "field": "confidence",
+                "label": "置信度",
+                "status": "provided" if confidence is not None else "missing",
+            },
+        ]
+        checks.extend(
+            {
+                "field": f"requirement:{item['requirement']}",
+                "label": str(item["requirement"]),
+                "status": item["status"],
+            }
+            for item in requirements
+        )
+        total = len(checks)
+        provided = len([item for item in checks if item.get("status") == "provided"])
+        score = round((provided / total) * 100) if total else 100
+        missing_fields = [
+            str(item.get("label") or item.get("field"))
+            for item in checks
+            if item.get("status") != "provided"
+        ]
+        if not text.strip():
+            status = "missing"
+        elif score >= 90:
+            status = "verified"
+        elif score >= 50:
+            status = "partial"
+        else:
+            status = "missing"
+        return {
+            "status": status,
+            "evidence_score": score,
+            "requirements": requirements,
+            "checks": checks,
+            "sources": sources[:8],
+            "dates": dates[:8],
+            "confidence": confidence,
+            "missing_fields": missing_fields,
+            "counter_evidence_present": counter_present,
+        }
+
+    @staticmethod
+    def _extract_evidence_sources(output: str) -> list[dict[str, str]]:
+        """Extract URL, source, file, or command references from output text."""
+        sources: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for match in EVIDENCE_URL_PATTERN.finditer(output):
+            value = match.group(0).rstrip(".,;，。)")
+            if value in seen:
+                continue
+            seen.add(value)
+            sources.append({"kind": "url", "value": value})
+        for match in EVIDENCE_SOURCE_PATTERN.finditer(output):
+            value = " ".join(match.group("value").split()).strip(" -")
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            sources.append({"kind": "reference", "value": value[:180]})
+        return sources
+
+    @staticmethod
+    def _extract_evidence_dates(output: str) -> list[str]:
+        """Extract dates or observed periods from output text."""
+        dates: list[str] = []
+        seen: set[str] = set()
+        for match in EVIDENCE_DATE_PATTERN.finditer(output):
+            value = match.group(0)
+            if value in seen:
+                continue
+            seen.add(value)
+            dates.append(value)
+        return dates
+
+    @staticmethod
+    def _requirement_is_satisfied(output: str, requirement: str) -> bool:
+        """Best-effort check that a stage-specific evidence requirement is present."""
+        normalized_output = " ".join(output.lower().split())
+        normalized_requirement = " ".join(requirement.lower().split())
+        if normalized_requirement and normalized_requirement in normalized_output:
+            return True
+        tokens = [
+            token
+            for token in re.split(r"[\s,，/|;；:：()（）-]+", normalized_requirement)
+            if len(token) >= 3
+        ]
+        if not tokens:
+            return bool(normalized_output.strip())
+        matches = sum(1 for token in tokens if token in normalized_output)
+        return matches >= max(1, min(len(tokens), 2))
+
+    @staticmethod
+    def _build_loop_improve_suggestions(
+        loop_run: dict[str, object],
+        stages: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        """Generate actionable Loop-level improvement prompts from the run."""
+        suggestions: list[dict[str, object]] = []
+        failed = [stage for stage in stages if stage.get("status") != "completed"]
+        if failed:
+            suggestions.append(
+                {
+                    "kind": "retry",
+                    "priority": "high",
+                    "title": "重跑失败 stage",
+                    "detail": f"先重跑 {failed[0].get('stage_name') or failed[0].get('stage_id')}，再让后续 stage 读取新的摘要。",
+                    "stage_id": failed[0].get("stage_id"),
+                }
+            )
+        missing_evidence = [
+            item
+            for item in TaskService._build_loop_evidence_ledger(stages)
+            if item.get("status") in {"missing", "partial"}
+        ]
+        if missing_evidence:
+            suggestions.append(
+                {
+                    "kind": "evidence",
+                    "priority": "high",
+                    "title": "补齐证据字段",
+                    "detail": "至少有一个 stage 缺少来源、日期、反证、置信度或 stage-specific evidence，建议重跑该 stage 或拆出证据收集步骤。",
+                    "stage_id": missing_evidence[0].get("stage_id"),
+                }
+            )
+        distinct_models = {
+            str(stage.get("model") or "") for stage in stages if stage.get("model")
+        }
+        if len(stages) > 1 and len(distinct_models) < min(3, len(stages)):
+            suggestions.append(
+                {
+                    "kind": "model_routing",
+                    "priority": "medium",
+                    "title": "增加模型分工差异",
+                    "detail": "当前模型分布偏集中，建议给研究、反方、综合角色分配不同模型。",
+                }
+            )
+        if not suggestions:
+            suggestions.extend(
+                [
+                    {
+                        "kind": "judge",
+                        "priority": "medium",
+                        "title": "加入独立 reviewer stage",
+                        "detail": "把最终合成和反证审查拆开，让 reviewer 只评分证据、冲突和信心。",
+                    },
+                    {
+                        "kind": "evidence",
+                        "priority": "medium",
+                        "title": "把证据规则变成可验证字段",
+                        "detail": "为每个 stage 增加来源、时间范围、反例、置信度四个固定输出字段。",
+                    },
+                    {
+                        "kind": "memory",
+                        "priority": "low",
+                        "title": "保存表现最好的模型-role 映射",
+                        "detail": f"本次 {loop_run.get('loop_name', 'Loop')} 可把 model_performance 作为下轮默认路由依据。",
+                    },
+                ]
+            )
+        return suggestions[:5]
+
+    @staticmethod
+    def _extract_confidence(output: object) -> float | None:
+        """Best-effort confidence percentage extraction for model performance."""
+        text = str(output or "")
+        match = re.search(
+            r"(?:confidence|置信度|把握|概率)[^\d]{0,16}(\d{1,3}(?:\.\d+)?)\s*%",
+            text,
+            re.IGNORECASE,
+        )
+        if match is None:
+            match = re.search(r"(\d{1,3}(?:\.\d+)?)\s*%", text)
+        if match is None:
+            return None
+        try:
+            value = float(match.group(1))
+        except ValueError:
+            return None
+        if value < 0 or value > 100:
+            return None
+        return value
+
+    @staticmethod
+    def _summarize_output(output: str, limit: int = 220) -> str:
+        """Reduce a model output to a compact stage summary."""
+        compact = " ".join(str(output or "").split())
+        if len(compact) <= limit:
+            return compact
+        return compact[: limit - 3] + "..."
 
     def _build_normalized_request(self, prepared: PreparedTaskExecution) -> dict[str, object]:
         """Build the adapter payload for single-pass execution."""
@@ -1754,6 +2732,17 @@ class TaskService:
                 content=content,
                 format=format_name,  # type: ignore[arg-type]
                 source_task_id=task_id or None,
+                loop_id=(
+                    str(metadata.get("loop_id"))
+                    if metadata.get("loop_id") is not None
+                    else None
+                ),
+                loop_name=(
+                    str((metadata.get("loop") or {}).get("name"))
+                    if isinstance(metadata.get("loop"), dict)
+                    else None
+                ),
+                provenance=self._build_artifact_provenance(metadata),
             )
         )
         generated = metadata.get("generated_artifacts")
@@ -1838,6 +2827,19 @@ class TaskService:
                     ),
                 }
             )
+        loop_run = metadata.get("loop_run")
+        if isinstance(loop_run, dict):
+            steps.append(
+                {
+                    "id": "loop",
+                    "label": "Loop 循环",
+                    "status": loop_run.get("status") or "completed",
+                    "summary": (
+                        f"{loop_run.get('loop_name', 'Loop')} / "
+                        f"{len(loop_run.get('stages') or [])} steps"
+                    ),
+                }
+            )
         if metadata.get("generated_artifacts"):
             steps.append(
                 {
@@ -1872,6 +2874,116 @@ class TaskService:
             "steps": steps,
             "warnings": warnings,
         }
+
+    @staticmethod
+    def _attach_loop_run_trace(response: TaskResponse) -> None:
+        """Finalize loop trace metadata after runtime execution."""
+        metadata = response.data.metadata
+        loop_run = metadata.get("loop_run")
+        if not isinstance(loop_run, dict):
+            return
+        orchestration = metadata.get("orchestration")
+        orchestration_stages = (
+            orchestration.get("stages")
+            if isinstance(orchestration, dict) and isinstance(orchestration.get("stages"), list)
+            else []
+        )
+        stages = loop_run.get("stages")
+        if not isinstance(stages, list):
+            stages = []
+        next_stages: list[dict[str, object]] = []
+        for index, stage in enumerate(stages, start=1):
+            if not isinstance(stage, dict):
+                continue
+            source = (
+                orchestration_stages[index - 1]
+                if index - 1 < len(orchestration_stages)
+                and isinstance(orchestration_stages[index - 1], dict)
+                else {}
+            )
+            next_stages.append(
+                {
+                    **stage,
+                    "status": source.get("status") or stage.get("status") or response.status,
+                    "summary": source.get("summary") or stage.get("summary") or "",
+                    "output": (
+                        source.get("output")
+                        or stage.get("output")
+                        or (
+                            response.data.output[:1200]
+                            if index == len(stages)
+                            else stage.get("expected_output") or ""
+                        )
+                    ),
+                    "model": source.get("model")
+                    or stage.get("model")
+                    or (
+                        metadata.get("task_model_selection", {}).get("model_id")
+                        if isinstance(metadata.get("task_model_selection"), dict)
+                        else ""
+                    ),
+                    "provider": source.get("provider")
+                    or stage.get("provider")
+                    or response.data.provider,
+                }
+            )
+        loop_run["status"] = response.status
+        loop_run["stages"] = next_stages
+        loop_run["completed_at"] = datetime.now().astimezone().isoformat()
+        TaskService._decorate_loop_run_runtime(loop_run)
+        metadata["loop_run"] = loop_run
+        metadata["artifact_provenance"] = TaskService._build_artifact_provenance(metadata)
+
+    @staticmethod
+    def _build_artifact_provenance(metadata: dict[str, object]) -> dict[str, object]:
+        """Build portable provenance metadata for exported artifacts."""
+        loop = metadata.get("loop")
+        model = metadata.get("task_model_selection")
+        return {
+            "task_id": metadata.get("task_id"),
+            "loop": loop if isinstance(loop, dict) else None,
+            "model": model if isinstance(model, dict) else None,
+            "models": TaskService._collect_loop_stage_models(metadata),
+            "preset_mode": metadata.get("resolved_preset_mode"),
+            "evidence_rules": (
+                metadata.get("loop_run", {}).get("evidence_rules")
+                if isinstance(metadata.get("loop_run"), dict)
+                else []
+            ),
+            "artifact_outputs": (
+                metadata.get("loop_run", {}).get("artifact_outputs")
+                if isinstance(metadata.get("loop_run"), dict)
+                else []
+            ),
+        }
+
+    @staticmethod
+    def _collect_loop_stage_models(metadata: dict[str, object]) -> list[dict[str, object]]:
+        """Collect distinct model provenance from Loop stages."""
+        loop_run = metadata.get("loop_run")
+        if not isinstance(loop_run, dict):
+            return []
+        stages = loop_run.get("stages")
+        if not isinstance(stages, list):
+            return []
+        models: list[dict[str, object]] = []
+        seen: set[str] = set()
+        for stage in stages:
+            if not isinstance(stage, dict):
+                continue
+            model_id = str(stage.get("model") or "")
+            if not model_id or model_id in seen:
+                continue
+            seen.add(model_id)
+            models.append(
+                {
+                    "model_id": model_id,
+                    "role": stage.get("role"),
+                    "stage_id": stage.get("stage_id"),
+                    "provider": stage.get("provider"),
+                }
+            )
+        return models
 
     @staticmethod
     def _format_conversation_history(conversation_history: list[object]) -> list[str]:

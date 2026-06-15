@@ -25,7 +25,9 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(
         default_factory=lambda: [
             "http://127.0.0.1:5173",
+            "http://127.0.0.1:5174",
             "http://localhost:5173",
+            "http://localhost:5174",
         ]
     )
     openhands_mode: str = Field(
@@ -80,6 +82,10 @@ class Settings(BaseSettings):
     project_spaces_path: str = Field(
         default=str(Path("app") / "data" / "project_spaces.json"),
         description="Local project spaces registry path.",
+    )
+    loop_library_path: str = Field(
+        default=str(Path("app") / "data" / "loops.json"),
+        description="Local Loop Library registry path for portable loop.md workflows.",
     )
     code_execution_requires_approval: bool = Field(
         default=True,

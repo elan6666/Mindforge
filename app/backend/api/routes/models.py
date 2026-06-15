@@ -25,4 +25,3 @@ def list_models(
 ) -> list[ModelSummary]:
     """Return configured model definitions."""
     return service.list_models()
-

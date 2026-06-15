@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: mindforge-api
+    runtime: python
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -e .
+    startCommand: uvicorn app.backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: OPENHANDS_MODE
+        value: model-api
+      - key: MODEL_API_TIMEOUT_SECONDS
+        value: "60"
+      - key: MODEL_API_MAX_TOKENS
+        value: "1200"
+      - key: CORS_ORIGINS
+        sync: false
+      - key: ARK_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: MOONSHOT_API_KEY
+        sync: false
+      - key: ZHIPU_API_KEY
+        sync: false

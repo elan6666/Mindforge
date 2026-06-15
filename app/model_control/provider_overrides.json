@@ -1,3 +1,26 @@
 {
-  "providers": {}
+  "providers": {},
+  "custom_providers": {
+    "deepseek": {
+      "provider_id": "deepseek",
+      "display_name": "DeepSeek",
+      "description": "DeepSeek OpenAI-compatible API",
+      "enabled": true,
+      "api_base_url": "https://api.deepseek.com",
+      "metadata": {
+        "protocol": "openai",
+        "api_key_env": "DEEPSEEK_API_KEY"
+      }
+    },
+    "火山": {
+      "provider_id": "火山",
+      "display_name": "火山",
+      "description": "用户自定义模型服务商",
+      "enabled": true,
+      "api_base_url": "https://ark.cn-beijing.volces.com/api/coding/v3",
+      "metadata": {
+        "protocol": "openai-compatible"
+      }
+    }
+  }
 }

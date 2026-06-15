@@ -1,9 +1,15 @@
 """Task submission endpoints."""
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 
-from app.backend.schemas.task import TaskErrorResponse, TaskRequest, TaskResponse
+from app.backend.schemas.history import TaskHistoryDetail
+from app.backend.schemas.task import (
+    LoopStageRetryRequest,
+    TaskErrorResponse,
+    TaskRequest,
+    TaskResponse,
+)
 from app.backend.services.task_service import TaskService, get_task_service
 
 router = APIRouter()
@@ -27,3 +33,21 @@ def submit_task(
             content=error_payload.model_dump(),
         )
     return result
+
+
+@router.post(
+    "/{task_id}/loops/stages/{stage_id}/retry",
+    response_model=TaskHistoryDetail,
+    status_code=status.HTTP_200_OK,
+)
+def retry_loop_stage(
+    task_id: str,
+    stage_id: str,
+    payload: LoopStageRetryRequest,
+    service: TaskService = Depends(get_task_service),
+) -> TaskHistoryDetail:
+    """Retry one stage from a persisted Loop run."""
+    try:
+        return service.retry_loop_stage(task_id, stage_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

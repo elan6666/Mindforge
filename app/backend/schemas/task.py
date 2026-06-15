@@ -139,6 +139,11 @@ class TaskRequest(BaseModel):
         default=None,
         description="Optional explicit rule template selection for dynamic role assignment.",
     )
+    loop_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("loop_id", "loopId"),
+        description="Optional portable Loop id used to orchestrate and trace the task.",
+    )
     project_id: str | None = Field(
         default=None,
         validation_alias=AliasChoices("project_id", "projectId"),
@@ -224,6 +229,19 @@ class TaskRequest(BaseModel):
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Optional task metadata for future extensions.",
+    )
+
+
+class LoopStageRetryRequest(BaseModel):
+    """Request body for retrying one persisted Loop stage."""
+
+    model_override: str | None = Field(
+        default=None,
+        description="Optional model id to use for this retry instead of the original stage model.",
+    )
+    note: str | None = Field(
+        default=None,
+        description="Optional operator note added to the retry prompt.",
     )
 
 
