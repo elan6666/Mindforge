@@ -19,7 +19,8 @@
       "enabled": true,
       "api_base_url": "https://ark.cn-beijing.volces.com/api/coding/v3",
       "metadata": {
-        "protocol": "openai-compatible"
+        "protocol": "openai-compatible",
+        "api_key_env": "ARK_API_KEY"
       }
     }
   }
